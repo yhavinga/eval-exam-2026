@@ -458,7 +458,7 @@ MOTIVATIE: [uitleg waarom deze score]
         resp = client.chat.completions.create(
             model=judge_model,
             messages=[{"role": "user", "content": content}],
-            max_tokens=32768,
+            max_tokens=65536,
             temperature=temperature
         )
         motivation = resp.choices[0].message.content
