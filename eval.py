@@ -465,9 +465,9 @@ MOTIVATIE: [uitleg waarom deze score]
         score = None
         max_score = None
         if motivation:
-            # Parse SCORE=X and MAX=Y (with or without brackets)
-            score_match = re.search(r'\[?SCORE=(\d+(?:\.\d+)?)\]?', motivation)
-            max_match = re.search(r'\[?MAX=(\d+(?:\.\d+)?)\]?', motivation)
+            # Parse SCORE and MAX in various formats: [SCORE=3], SCORE=3, SCORE: 3
+            score_match = re.search(r'\[?SCORE[=:]\s*(\d+(?:\.\d+)?)\]?', motivation)
+            max_match = re.search(r'\[?MAX[=:]\s*(\d+(?:\.\d+)?)\]?', motivation)
             if score_match:
                 score = float(score_match.group(1))
             if max_match:
@@ -476,6 +476,7 @@ MOTIVATIE: [uitleg waarom deze score]
     except Exception as e:
         motivation = None
         score = None
+        max_score = None
         error = str(e)
     duration_ms = int((time.perf_counter() - start) * 1000)
 
