@@ -194,7 +194,7 @@ def cmd_sync(args):
 def cmd_solve(args):
     """Generate answers for all questions, grouped by topic."""
     conn = init_db()
-    client = OpenAI(base_url=args.base_url, api_key="not-needed")
+    client = OpenAI(base_url=args.base_url, api_key="not-needed", timeout=3600.0)
 
     # Group questions by (exam_code, question_name) = topic
     questions = conn.execute("""
@@ -206,9 +206,15 @@ def cmd_solve(args):
         topic_key = (q["exam_code"], q["question_name"])
         topics[topic_key].append(q)
 
+    # Sort topics by minimum question number (numeric order)
+    sorted_topics = sorted(
+        topics.items(),
+        key=lambda x: min(int(q["question_number"]) for q in x[1])
+    )
+
     print(f"Solving {len(questions)} questions in {len(topics)} topics with {args.model}...")
 
-    for (exam_code, topic_name), topic_questions in topics.items():
+    for (exam_code, topic_name), topic_questions in sorted_topics:
         print(f"\n=== Topic: {exam_code} / {topic_name} ({len(topic_questions)} questions) ===")
 
         # Fresh conversation for each topic
@@ -251,24 +257,33 @@ def cmd_solve(args):
                     model=args.model,
                     messages=messages,
                     max_tokens=args.max_tokens,
-                    temperature=args.temperature
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    extra_body={
+                        "top_k": args.top_k,
+                        "presence_penalty": args.presence_penalty
+                    }
                 )
-                response = resp.choices[0].message.content
+                msg = resp.choices[0].message
+                response = msg.content
+                # Extract reasoning_content if present (Qwen thinking mode)
+                reasoning = getattr(msg, 'reasoning_content', None)
                 error = None
             except Exception as e:
                 response = None
+                reasoning = None
                 error = str(e)
             duration_ms = int((time.perf_counter() - start) * 1000)
 
-            # Add assistant response to conversation for context
+            # Add assistant response to conversation for context (only content, not reasoning for KV cache efficiency)
             messages.append({"role": "assistant", "content": response or "[error]"})
 
-            # Save to DB
+            # Save to DB (both response and reasoning)
             cur = conn.execute("""
-                INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, max_tokens, response, duration_ms, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, max_tokens, response, reasoning, duration_ms, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
-            """, (q["id"], args.model, args.stack, args.base_url, args.temperature, args.max_tokens, response, duration_ms, error))
+            """, (q["id"], args.model, args.stack, args.base_url, args.temperature, args.max_tokens, response, reasoning, duration_ms, error))
             cur.fetchone()
             conn.commit()
 
@@ -319,10 +334,10 @@ def solve_question(
     base_url: str,
     inference_stack: str = "lmstudio",
     temperature: float = 0.0,
-    max_tokens: int = 16384
+    max_tokens: int = 65536
 ) -> int:
     """Generate answer for a question, returns answer id."""
-    client = OpenAI(base_url=base_url, api_key="not-needed")
+    client = OpenAI(base_url=base_url, api_key="not-needed", timeout=3600.0)
 
     q = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
     image_paths = json.loads(q["image_paths"])
@@ -400,7 +415,7 @@ def judge_answer(
     question_images = json.loads(question["image_paths"])
     max_punten = question["max_punten"] or 0
 
-    client = OpenAI(base_url=judge_base_url, api_key="not-needed")
+    client = OpenAI(base_url=judge_base_url, api_key="not-needed", timeout=3600.0)
 
     content = []
     for img_path in question_images:
@@ -480,8 +495,11 @@ def main():
     p_solve.add_argument("--model", default="qwen3.5-27b", help="Model to use")
     p_solve.add_argument("--base-url", default="http://192.168.2.97:1234/v1", help="API base URL")
     p_solve.add_argument("--stack", default="lmstudio", help="Inference stack name")
-    p_solve.add_argument("--temperature", type=float, default=0.0)
-    p_solve.add_argument("--max-tokens", type=int, default=16384)
+    p_solve.add_argument("--temperature", type=float, default=1.0, help="Temperature (1.0 for Qwen thinking)")
+    p_solve.add_argument("--top-p", type=float, default=0.95, help="Top-p sampling")
+    p_solve.add_argument("--top-k", type=int, default=20, help="Top-k sampling")
+    p_solve.add_argument("--presence-penalty", type=float, default=1.5, help="Presence penalty (shortens thinking)")
+    p_solve.add_argument("--max-tokens", type=int, default=65536, help="Max tokens for response")
     p_solve.add_argument("--force", action="store_true", help="Re-solve already answered questions")
     p_solve.set_defaults(func=cmd_solve)
 

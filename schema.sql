@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS answers (
     temperature REAL DEFAULT 0.0,
     max_tokens INTEGER,
     -- response
-    response TEXT,
+    response TEXT,                          -- final answer (content)
+    reasoning TEXT,                         -- thinking/reasoning tokens (reasoning_content)
     duration_ms INTEGER,
     error TEXT
 );
