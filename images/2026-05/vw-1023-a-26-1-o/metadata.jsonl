@@ -1,25 +1,25 @@
-{"question": "01", "name": "botsproef", "images": ["01_botsproef.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "02", "name": "botsproef", "images": ["02_botsproef_opgave.png", "02_botsproef_uitwerkbijlage.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "03", "name": "botsproef", "images": ["03_botsproef_opgave.png", "03_botsproef_figuur_3.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "04", "name": "botsproef", "images": ["04_botsproef.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "05", "name": "botsproef", "images": ["05_botsproef.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "06", "name": "botsproef", "images": ["06_botsproef.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "07", "name": "botsproef", "images": ["07_botsproef.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "08", "name": "elektriciteitspracticum", "images": ["08_elektriciteitspracticum.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "09", "name": "elektriciteitspracticum", "images": ["09_elektriciteitspracticum.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "10", "name": "elektriciteitspracticum", "images": ["10_elektriciteitspracticum.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "11", "name": "cepheiden", "images": ["11_cepheiden.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "12", "name": "cepheiden", "images": ["12_cepheiden_opgave.png", "12_cepheiden_figuur_3.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "13", "name": "cepheiden", "images": ["13_cepheiden_opgave.png", "13_cepheiden_figuur_5.png", "13_cepheiden_uitwerkbijlage.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "14", "name": "cepheiden", "images": ["14_cepheiden.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "15", "name": "cepheiden", "images": ["15_cepheiden_opgave.png", "15_cepheiden_figuur_3.png", "15_cepheiden_figuur_5.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "16", "name": "morphodidius", "images": ["16_morphodidius.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "17", "name": "morphodidius", "images": ["17_morphodidius_opgave.png", "17_morphodidius_figuur_3.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "18", "name": "morphodidius", "images": ["18_morphodidius_opgave.png", "18_morphodidius_uitwerkbijlage.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "19", "name": "linac", "images": ["19_linac.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "20", "name": "linac", "images": ["20_linac_opgave.png", "20_linac_figuur_2.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "21", "name": "linac", "images": ["21_linac_opgave.png", "21_linac_uitwerkbijlage.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "22", "name": "linac", "images": ["22_linac.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "23", "name": "linac", "images": ["23_linac.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "24", "name": "linac", "images": ["24_linac_opgave.png", "24_linac_figuur_9.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
-{"question": "25", "name": "linac", "images": ["25_linac_opgave.png", "25_linac_figuur_10.png", "25_linac_uitwerkbijlage.png"], "cv": [], "max_punten": null, "prompt": "Los dit op"}
+{"question": "01", "name": "botsproef", "images": ["01_botsproef.png"], "cv": ["cv/01_botsproef_cv.png", "cv/01_botsproef_cv_aanvullend.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "02", "name": "botsproef", "images": ["02_botsproef_opgave.png", "02_botsproef_uitwerkbijlage.png"], "cv": ["cv/02_botsproef_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "03", "name": "botsproef", "images": ["03_botsproef_opgave.png", "03_botsproef_figuur_3.png"], "cv": ["cv/03_botsproef_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "04", "name": "botsproef", "images": ["04_botsproef.png"], "cv": ["cv/04_botsproef_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "05", "name": "botsproef", "images": ["05_botsproef.png"], "cv": ["cv/05_botsproef_cv.png", "cv/05_botsproef_cv_aanvullend.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "06", "name": "botsproef", "images": ["06_botsproef.png"], "cv": ["cv/06_botsproef_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "07", "name": "botsproef", "images": ["07_botsproef.png"], "cv": ["cv/07_botsproef_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "08", "name": "elektriciteitspracticum", "images": ["08_elektriciteitspracticum.png"], "cv": ["cv/08_elektriciteitspracticum_cv.png", "cv/08_elektriciteitspracticum_cv_aanvullend.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "09", "name": "elektriciteitspracticum", "images": ["09_elektriciteitspracticum.png"], "cv": ["cv/09_elektriciteitspracticum_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "10", "name": "elektriciteitspracticum", "images": ["10_elektriciteitspracticum.png"], "cv": ["cv/10_elektriciteitspracticum_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "11", "name": "cepheiden", "images": ["11_cepheiden.png"], "cv": ["cv/11_cepheiden_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "12", "name": "cepheiden", "images": ["12_cepheiden_opgave.png", "12_cepheiden_figuur_3.png"], "cv": ["cv/12_cepheiden_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "13", "name": "cepheiden", "images": ["13_cepheiden_opgave.png", "13_cepheiden_figuur_5.png", "13_cepheiden_uitwerkbijlage.png"], "cv": ["cv/13_cepheiden_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "14", "name": "cepheiden", "images": ["14_cepheiden.png"], "cv": ["cv/14_cepheiden_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "15", "name": "cepheiden", "images": ["15_cepheiden_opgave.png", "15_cepheiden_figuur_3.png", "15_cepheiden_figuur_5.png"], "cv": ["cv/15_cepheiden_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "16", "name": "morphodidius", "images": ["16_morphodidius.png"], "cv": ["cv/16_morphodidius_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "17", "name": "morphodidius", "images": ["17_morphodidius_opgave.png", "17_morphodidius_figuur_3.png"], "cv": ["cv/17_morphodidius_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "18", "name": "morphodidius", "images": ["18_morphodidius_opgave.png", "18_morphodidius_uitwerkbijlage.png"], "cv": ["cv/18_morphodidius_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "19", "name": "linac", "images": ["19_linac.png"], "cv": ["cv/19_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "20", "name": "linac", "images": ["20_linac_opgave.png", "20_linac_figuur_2.png"], "cv": ["cv/20_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "21", "name": "linac", "images": ["21_linac_opgave.png", "21_linac_uitwerkbijlage.png"], "cv": ["cv/21_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "22", "name": "linac", "images": ["22_linac.png"], "cv": ["cv/22_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "23", "name": "linac", "images": ["23_linac.png"], "cv": ["cv/23_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "24", "name": "linac", "images": ["24_linac_opgave.png", "24_linac_figuur_9.png"], "cv": ["cv/24_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}
+{"question": "25", "name": "linac", "images": ["25_linac_opgave.png", "25_linac_figuur_10.png", "25_linac_uitwerkbijlage.png"], "cv": ["cv/25_linac_cv.png"], "max_punten": null, "prompt": "Los dit op"}

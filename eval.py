@@ -24,7 +24,8 @@ IMAGES_BASE = Path("images")
 
 # Naming convention: {nr}_{name}[_suffix].png
 # Examples: 01_botsproef.png, 02_botsproef_opgave.png, 03_botsproef_figuur_3.png
-QUESTION_PATTERN = re.compile(r"^(\d+)_([a-z0-9_-]+?)(?:_(opgave|uitwerkbijlage|figuur_\d+|\d+))?\.png$", re.IGNORECASE)
+# CV examples: 01_botsproef_cv.png, 01_botsproef_cv_aanvullend.png
+QUESTION_PATTERN = re.compile(r"^(\d+)_([a-z0-9_-]+?)(?:_(opgave|uitwerkbijlage|figuur_\d+|cv|cv_aanvullend|\d+))?\.png$", re.IGNORECASE)
 
 
 def init_db() -> sqlite3.Connection:
@@ -318,7 +319,7 @@ def cmd_judge(args):
     for a in answers:
         print(f"  {a['exam_code']} Q{a['question_number']} (answer {a['id']}): judging...", end=" ", flush=True)
         try:
-            judgement_id = judge_answer(conn, a["id"], args.judge_model, args.judge_base_url, args.judge_stack)
+            judgement_id = judge_answer(conn, a["id"], args.judge_model, args.judge_base_url, args.judge_stack, args.temperature)
             j = conn.execute("SELECT score, max_score, duration_ms FROM judgements WHERE id = ?", (judgement_id,)).fetchone()
             print(f"{j['score']}/{j['max_score']} ({j['duration_ms']}ms)")
         except ValueError as e:
@@ -402,7 +403,8 @@ def judge_answer(
     answer_id: int,
     judge_model: str,
     judge_base_url: str,
-    judge_stack: str = "openai"
+    judge_stack: str = "openai",
+    temperature: float = 1.0
 ) -> int:
     """Judge an answer using correctievoorschrift, returns judgement id."""
     answer = conn.execute("SELECT * FROM answers WHERE id = ?", (answer_id,)).fetchone()
@@ -430,35 +432,38 @@ def judge_answer(
 
 OPGAVE: Zie de eerste afbeelding(en).
 
-CORRECTIEVOORSCHRIFT: Zie de laatste afbeelding(en).
+CORRECTIEVOORSCHRIFT: Zie de laatste afbeelding(en). Het maximum aantal punten staat in het correctievoorschrift.
 
 ANTWOORD VAN LEERLING:
 {answer["response"]}
 
 OPDRACHT:
 Beoordeel het antwoord volgens het correctievoorschrift.
-Maximaal {max_punten} punten.
 
-Geef je beoordeling in dit formaat:
-SCORE: [aantal punten]
-MOTIVATIE: [uitleg waarom deze score]"""})
+Geef je beoordeling in dit formaat (motivatie EERST, dan scores):
+MOTIVATIE: [uitleg waarom deze score]
+[SCORE=getal]
+[MAX=getal]"""})
 
     start = time.perf_counter()
     try:
         resp = client.chat.completions.create(
             model=judge_model,
             messages=[{"role": "user", "content": content}],
-            max_tokens=4096,
-            temperature=0.0
+            max_tokens=32768,
+            temperature=temperature
         )
         motivation = resp.choices[0].message.content
         score = None
-        for line in motivation.split("\n"):
-            if line.startswith("SCORE:"):
-                try:
-                    score = float(line.split(":")[1].strip().split()[0])
-                except:
-                    pass
+        max_score = None
+        if motivation:
+            # Parse SCORE=X and MAX=Y (with or without brackets)
+            score_match = re.search(r'\[?SCORE=(\d+(?:\.\d+)?)\]?', motivation)
+            max_match = re.search(r'\[?MAX=(\d+(?:\.\d+)?)\]?', motivation)
+            if score_match:
+                score = float(score_match.group(1))
+            if max_match:
+                max_score = float(max_match.group(1))
         error = None
     except Exception as e:
         motivation = None
@@ -470,7 +475,7 @@ MOTIVATIE: [uitleg waarom deze score]"""})
         INSERT INTO judgements (answer_id, judge_model, judge_stack, score, max_score, motivation, duration_ms, error)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
-    """, (answer_id, judge_model, judge_stack, score, max_punten, motivation, duration_ms, error))
+    """, (answer_id, judge_model, judge_stack, score, max_score, motivation, duration_ms, error))
     result = cur.fetchone()[0]
     conn.commit()
     return result
@@ -508,6 +513,7 @@ def main():
     p_judge.add_argument("--judge-model", default="qwen3.5-27b", help="Judge model to use")
     p_judge.add_argument("--judge-base-url", default="http://192.168.2.97:1234/v1", help="Judge API base URL")
     p_judge.add_argument("--judge-stack", default="lmstudio", help="Judge inference stack")
+    p_judge.add_argument("--temperature", type=float, default=1.0, help="Temperature for judge (1.0 for Qwen reasoning)")
     p_judge.add_argument("--force", action="store_true", help="Re-judge already judged answers")
     p_judge.set_defaults(func=cmd_judge)
 
