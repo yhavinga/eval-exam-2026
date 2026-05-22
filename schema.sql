@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS answers (
     inference_stack TEXT,                   -- e.g. "lmstudio", "ollama"
     base_url TEXT,
     temperature REAL DEFAULT 0.0,
+    top_p REAL,
+    top_k INTEGER,
+    presence_penalty REAL,
     max_tokens INTEGER,
     -- response
     response TEXT,                          -- final answer (content)

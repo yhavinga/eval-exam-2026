@@ -251,29 +251,37 @@ def cmd_solve(args):
 
             messages.append({"role": "user", "content": content})
 
-            # Call API with full conversation context
+            # Call API with full conversation context (retry once on parse errors)
             start = time.perf_counter()
-            try:
-                resp = client.chat.completions.create(
-                    model=args.model,
-                    messages=messages,
-                    max_tokens=args.max_tokens,
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                    extra_body={
-                        "top_k": args.top_k,
-                        "presence_penalty": args.presence_penalty
-                    }
-                )
-                msg = resp.choices[0].message
-                response = msg.content
-                # Extract reasoning_content if present (Qwen thinking mode)
-                reasoning = getattr(msg, 'reasoning_content', None)
-                error = None
-            except Exception as e:
-                response = None
-                reasoning = None
-                error = str(e)
+            response = None
+            reasoning = None
+            error = None
+            for attempt in range(2):
+                try:
+                    resp = client.chat.completions.create(
+                        model=args.model,
+                        messages=messages,
+                        max_tokens=args.max_tokens,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        extra_body={
+                            "top_k": args.top_k,
+                            "presence_penalty": args.presence_penalty
+                        }
+                    )
+                    msg = resp.choices[0].message
+                    response = msg.content
+                    # Extract reasoning_content if present (Qwen/Gemma thinking mode)
+                    reasoning = getattr(msg, 'reasoning_content', None)
+                    error = None
+                    break
+                except Exception as e:
+                    error = str(e)
+                    if attempt == 0 and "parse" in error.lower():
+                        print("RETRY...", end=" ", flush=True)
+                        continue
+                    response = None
+                    reasoning = None
             duration_ms = int((time.perf_counter() - start) * 1000)
 
             # Add assistant response to conversation for context (only content, not reasoning for KV cache efficiency)
@@ -281,10 +289,10 @@ def cmd_solve(args):
 
             # Save to DB (both response and reasoning)
             cur = conn.execute("""
-                INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, max_tokens, response, reasoning, duration_ms, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, top_p, top_k, presence_penalty, max_tokens, response, reasoning, duration_ms, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
-            """, (q["id"], args.model, args.stack, args.base_url, args.temperature, args.max_tokens, response, reasoning, duration_ms, error))
+            """, (q["id"], args.model, args.stack, args.base_url, args.temperature, args.top_p, args.top_k, args.presence_penalty, args.max_tokens, response, reasoning, duration_ms, error))
             cur.fetchone()
             conn.commit()
 
