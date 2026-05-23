@@ -309,18 +309,24 @@ def cmd_judge(args):
     conn = init_db()
 
     # Get answers that haven't been judged yet (or all if --force)
+    # Optionally filter by answer model
+    model_filter = "AND a.model = ?" if args.answer_model else ""
+    params = (args.answer_model,) if args.answer_model else ()
+
     if args.force:
-        answers = conn.execute("""
+        answers = conn.execute(f"""
             SELECT a.*, q.exam_code, q.question_number
             FROM answers a JOIN questions q ON a.question_id = q.id
-        """).fetchall()
+            WHERE 1=1 {model_filter}
+        """, params).fetchall()
     else:
-        answers = conn.execute("""
+        answers = conn.execute(f"""
             SELECT a.*, q.exam_code, q.question_number
             FROM answers a
             JOIN questions q ON a.question_id = q.id
             WHERE a.id NOT IN (SELECT answer_id FROM judgements WHERE judge_model = ?)
-        """, (args.judge_model,)).fetchall()
+            {model_filter}
+        """, (args.judge_model,) + params).fetchall()
 
     print(f"Judging {len(answers)} answers with {args.judge_model}...")
 
@@ -524,6 +530,7 @@ def main():
     p_judge.add_argument("--judge-stack", default="lmstudio", help="Judge inference stack")
     p_judge.add_argument("--temperature", type=float, default=1.0, help="Temperature for judge (1.0 for Qwen reasoning)")
     p_judge.add_argument("--force", action="store_true", help="Re-judge already judged answers")
+    p_judge.add_argument("--answer-model", help="Only judge answers from this model")
     p_judge.set_defaults(func=cmd_judge)
 
     args = parser.parse_args()
