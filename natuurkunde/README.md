@@ -161,9 +161,21 @@ Alle modellen gebruiken de door de fabrikant aanbevolen temperature:
 
 **Let op:** Dit is contra-intuïtief. Traditioneel advies voor analytisch werk is lage temperature. Maar reasoning models met chain-of-thought (zoals Qwen en Gemma-4) raken in een herhalende loop bij greedy decoding - ze blijven dezelfde analyse herhalen zonder te convergeren. Qwen's officiële documentatie waarschuwt expliciet dat *"greedy decoding is a trap"* voor thinking models.
 
-### Hardware
+### Hardware & Quantisatie
 
-Lokale modellen gedraaid via LMStudio op een dual-GPU consumer systeem (~500W, niet geoptimaliseerd voor snelheid). Cloud modellen via OpenRouter API.
+Lokale modellen gedraaid via LMStudio op een dual-GPU consumer systeem:
+
+| Component | Specificatie |
+|-----------|--------------|
+| GPU's | 2× RTX 3090 (24GB elk) |
+| Quantisatie | **Q4_K_M** voor alle open weights modellen |
+| CUDA | 12.6 |
+| LMStudio | 0.4.14 |
+| Verbruik | ~500W tijdens inferentie |
+
+**MTP (Multi-Token Prediction)** is geprobeerd maar werkte niet goed - ofwel verkeerde antwoorden door kapotte chat templates, ofwel oneindige reasoning loops. Vergelijkbaar probleem als bij de gemma-4 + opus distill finetune die ook faalde door template issues.
+
+Cloud modellen via OpenRouter API.
 
 ---
 
