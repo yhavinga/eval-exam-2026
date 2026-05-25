@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+"""Generate Tufte-style benchmark visualizations for VWO exam evaluation."""
+
+import sqlite3
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from pathlib import Path
+import numpy as np
+
+# Tufte style: maximize data-ink ratio, remove chartjunk
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.size'] = 9
+mpl.rcParams['axes.spines.top'] = False
+mpl.rcParams['axes.spines.right'] = False
+mpl.rcParams['axes.spines.left'] = False
+mpl.rcParams['axes.linewidth'] = 0.5
+mpl.rcParams['xtick.major.width'] = 0.5
+mpl.rcParams['ytick.major.width'] = 0.5
+mpl.rcParams['figure.facecolor'] = 'white'
+mpl.rcParams['axes.facecolor'] = 'white'
+mpl.rcParams['savefig.facecolor'] = 'white'
+
+# Colors: minimal, functional
+LOCAL_COLOR = '#666666'  # gray for local models
+CLOUD_COLOR = '#2563eb'  # blue for cloud models
+
+
+def save_both(fig: plt.Figure, base_path: Path):
+    """Save figure as both SVG and PNG."""
+    fig.savefig(str(base_path) + ".svg", bbox_inches='tight', pad_inches=0.1)
+    fig.savefig(str(base_path) + ".png", bbox_inches='tight', dpi=150, pad_inches=0.1)
+    plt.close(fig)
+    print(f"  Saved {base_path.name}.svg and .png")
+
+
+def plot_model_ranking(db_path: str) -> plt.Figure:
+    """Horizontal bar chart of model scores, colored by local/cloud."""
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute("""
+        SELECT a.model,
+               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
+               a.inference_stack
+        FROM answers a
+        JOIN judgements j ON j.answer_id = a.id
+        WHERE j.score IS NOT NULL AND j.judge_model = 'google/gemma-4-31b'
+        GROUP BY a.model
+        ORDER BY pct DESC
+    """).fetchall()
+    conn.close()
+
+    models = [r[0] for r in rows]
+    scores = [r[1] for r in rows]
+    stacks = [r[2] for r in rows]
+    colors = [CLOUD_COLOR if s == 'openrouter' else LOCAL_COLOR for s in stacks]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    y_pos = np.arange(len(models))
+    bars = ax.barh(y_pos, scores, color=colors, height=0.7, edgecolor='none')
+
+    # Direct labels on bars
+    for i, (bar, score, stack) in enumerate(zip(bars, scores, stacks)):
+        label = f"{score}%"
+        if stack == 'openrouter':
+            label += " (cloud)"
+        ax.text(score + 0.5, i, label, va='center', fontsize=8, color='#333333')
+
+    # Clean model names for y-axis
+    clean_names = []
+    for m in models:
+        name = m.replace('google/', '').replace('qwen/', '').replace('openai/', '')
+        name = name.replace('mistralai/', '').replace('nvidia/', '')
+        clean_names.append(name)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(clean_names, fontsize=8)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 105)
+    ax.set_xlabel('Accuracy %')
+    ax.set_title('VWO Physics Exam: Model Ranking', fontsize=11, fontweight='bold', loc='left')
+
+    # Remove x-axis ticks (bars speak for themselves)
+    ax.set_xticks([])
+    ax.spines['bottom'].set_visible(False)
+
+    # Subtle reference lines at key thresholds
+    for thresh in [50, 80]:
+        ax.axvline(thresh, color='#cccccc', linewidth=0.5, linestyle='-', zorder=0)
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_cost_effectiveness() -> plt.Figure:
+    """Scatter: cost vs accuracy for cloud models."""
+    # Hardcoded pricing data (from OpenRouter)
+    data = [
+        ('gpt-5-mini', 2.00, 84.2),
+        ('gpt-5.1', 10.00, 81.6),
+        ('gpt-4o', 10.00, 57.9),
+        ('gpt-4o-mini', 0.60, 38.2),
+        ('mistral-large', 1.50, 59.2),
+    ]
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    for name, price, score in data:
+        ax.scatter(price, score, s=60, color=CLOUD_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
+        # Position labels to avoid collision
+        offset_x = 0.1
+        offset_y = 1.5
+        if name == 'gpt-5.1':
+            offset_x = 0.2
+            offset_y = -3
+        elif name == 'gpt-4o':
+            offset_y = -3
+        elif name == 'gpt-4o-mini':
+            offset_x = 0.05
+        ax.text(price + offset_x, score + offset_y, name, fontsize=8, color='#333333')
+
+    ax.set_xscale('log')
+    ax.set_xlabel('Output price ($/M tokens)')
+    ax.set_ylabel('Accuracy %')
+    ax.set_title('Cloud Model Cost-Effectiveness', fontsize=11, fontweight='bold', loc='left')
+
+    # Minimal grid
+    ax.set_xlim(0.4, 15)
+    ax.set_ylim(30, 90)
+    ax.set_xticks([0.5, 1, 2, 5, 10])
+    ax.set_xticklabels(['$0.50', '$1', '$2', '$5', '$10'])
+
+    # Pareto frontier annotation
+    ax.annotate('← Better value', xy=(1.5, 87), fontsize=8, color='#666666')
+
+    ax.spines['left'].set_visible(True)
+    fig.tight_layout()
+    return fig
+
+
+def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
+    """Scatter: inference time vs accuracy for OpenRouter models."""
+    conn = sqlite3.connect(db_path)
+    # Get scores (all answers including errors)
+    score_rows = conn.execute("""
+        SELECT a.model, ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        FROM answers a
+        JOIN judgements j ON j.answer_id = a.id
+        WHERE j.score IS NOT NULL
+          AND j.judge_model = 'google/gemma-4-31b'
+          AND a.inference_stack = 'openrouter'
+        GROUP BY a.model
+    """).fetchall()
+    scores = {r[0]: r[1] for r in score_rows}
+
+    # Get timing (only successful answers)
+    timing_rows = conn.execute("""
+        SELECT a.model, AVG(a.duration_ms)/1000.0 as avg_sec
+        FROM answers a
+        WHERE a.inference_stack = 'openrouter' AND a.error IS NULL
+        GROUP BY a.model
+    """).fetchall()
+    timing = {r[0]: r[1] for r in timing_rows}
+
+    rows = [(m, timing.get(m, 0), scores.get(m, 0)) for m in scores.keys()]
+    conn.close()
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+
+    for model, sec, score in rows:
+        ax.scatter(sec, score, s=60, color=CLOUD_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
+        name = model.replace('openai/', '').replace('mistralai/', '')
+        # Position labels
+        offset_x = 0.5
+        offset_y = 1.5
+        if 'gpt-5-mini' in model:
+            offset_y = -3
+        elif 'gpt-4o-mini' in model:
+            offset_y = -3
+        ax.text(sec + offset_x, score + offset_y, name, fontsize=8, color='#333333')
+
+    ax.set_xlabel('Avg. seconds per question')
+    ax.set_ylabel('Accuracy %')
+    ax.set_title('Cloud Models: Speed vs Accuracy', fontsize=11, fontweight='bold', loc='left')
+
+    ax.set_xlim(0, 30)
+    ax.set_ylim(30, 90)
+    ax.spines['left'].set_visible(True)
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
+    """Scatter: inference time vs accuracy for LMStudio models."""
+    conn = sqlite3.connect(db_path)
+    # Get scores (all answers)
+    score_rows = conn.execute("""
+        SELECT a.model, ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        FROM answers a
+        JOIN judgements j ON j.answer_id = a.id
+        WHERE j.score IS NOT NULL
+          AND j.judge_model = 'google/gemma-4-31b'
+          AND a.inference_stack = 'lmstudio'
+        GROUP BY a.model
+    """).fetchall()
+    scores = {r[0]: r[1] for r in score_rows}
+
+    # Get timing (only successful answers)
+    timing_rows = conn.execute("""
+        SELECT a.model, AVG(a.duration_ms)/1000.0 as avg_sec
+        FROM answers a
+        WHERE a.inference_stack = 'lmstudio' AND a.error IS NULL
+        GROUP BY a.model
+    """).fetchall()
+    timing = {r[0]: r[1] for r in timing_rows}
+
+    rows = [(m, timing.get(m, 0), scores.get(m, 0)) for m in scores.keys()]
+    conn.close()
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    for model, sec, score in rows:
+        ax.scatter(sec, score, s=60, color=LOCAL_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
+        name = model.replace('google/', '').replace('qwen/', '').replace('nvidia/', '')
+        name = name.replace('-it-claude-opus-distill', '-distill')
+        # Position labels to minimize collision
+        offset_x = 2
+        offset_y = 1
+        if 'qwen3.6-27b' in model:
+            offset_x = -55
+            offset_y = 1
+        elif 'gemma-4-31b' == name:
+            offset_y = -2.5
+        elif 'nemotron' in model:
+            offset_x = 3
+        ax.text(sec + offset_x, score + offset_y, name, fontsize=7, color='#333333')
+
+    ax.set_xlabel('Avg. seconds per question')
+    ax.set_ylabel('Accuracy %')
+    ax.set_title('Local Models: Speed vs Accuracy (unoptimized LMStudio)',
+                 fontsize=11, fontweight='bold', loc='left')
+
+    ax.set_xlim(0, 220)
+    ax.set_ylim(10, 100)
+    ax.spines['left'].set_visible(True)
+
+    # Note about timing
+    ax.text(110, 15, 'Timing reflects hardware/config,\nnot inherent model speed',
+            fontsize=7, color='#999999', style='italic')
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_question_heatmap(db_path: str) -> plt.Figure:
+    """Heatmap: questions × top models showing difficulty patterns."""
+    # Select top 6 models for readability
+    top_models = [
+        'qwen/qwen3.6-27b',
+        'google/gemma-4-31b',
+        'qwen/qwen3.6-35b-a3b',
+        'openai/gpt-5-mini',
+        'google/gemma-4-26b-a4b',
+        'openai/gpt-5.1',
+    ]
+
+    conn = sqlite3.connect(db_path)
+
+    # Get question metadata
+    questions = conn.execute("""
+        SELECT question_number, question_name, max_punten
+        FROM questions ORDER BY question_number
+    """).fetchall()
+
+    # Build score matrix
+    scores = {}
+    for model in top_models:
+        rows = conn.execute("""
+            SELECT q.question_number, j.score, j.max_score
+            FROM questions q
+            JOIN answers a ON a.question_id = q.id
+            JOIN judgements j ON j.answer_id = a.id
+            WHERE a.model = ? AND j.judge_model = 'google/gemma-4-31b'
+            ORDER BY q.question_number
+        """, (model,)).fetchall()
+        scores[model] = {r[0]: (r[1], r[2]) for r in rows}
+    conn.close()
+
+    # Create matrix
+    n_questions = len(questions)
+    n_models = len(top_models)
+    matrix = np.zeros((n_questions, n_models))
+
+    for j, model in enumerate(top_models):
+        for i, (qnum, _, _) in enumerate(questions):
+            if qnum in scores[model]:
+                score, max_score = scores[model][qnum]
+                matrix[i, j] = score / max_score if max_score > 0 else 0
+
+    fig, ax = plt.subplots(figsize=(8, 9))
+
+    # Heatmap with white (100%) to dark gray (0%)
+    cmap = plt.cm.RdYlGn  # Red (low) -> Yellow (mid) -> Green (high)
+    im = ax.imshow(matrix, aspect='auto', cmap=cmap, vmin=0, vmax=1)
+
+    # Labels
+    clean_models = [m.split('/')[-1] for m in top_models]
+    ax.set_xticks(np.arange(n_models))
+    ax.set_xticklabels(clean_models, rotation=45, ha='right', fontsize=8)
+
+    # Y-axis: Q01 botsproef, etc.
+    q_labels = [f"Q{q[0]} {q[1]}" for q in questions]
+    ax.set_yticks(np.arange(n_questions))
+    ax.set_yticklabels(q_labels, fontsize=7)
+
+    # Add score text in each cell
+    for i in range(n_questions):
+        for j in range(n_models):
+            val = matrix[i, j]
+            color = 'white' if val < 0.5 else 'black'
+            text = f"{int(val*100)}" if val > 0 else "0"
+            ax.text(j, i, text, ha='center', va='center', fontsize=6, color=color)
+
+    ax.set_title('Question Difficulty by Model (% correct)', fontsize=11, fontweight='bold', loc='left')
+
+    # Topic separators (subtle lines between topics)
+    # botsproef: Q01-Q07, elektriciteit: Q08-Q10, cepheiden: Q11-Q15, etc.
+    topic_breaks = [7, 10, 15, 18]  # After these question indices
+    for brk in topic_breaks:
+        ax.axhline(brk - 0.5, color='#666666', linewidth=1)
+
+    fig.tight_layout()
+    return fig
+
+
+if __name__ == "__main__":
+    DB = "eval.db"
+    OUT = Path("images/benchmark")
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    print("Generating Tufte-style benchmark visualizations...")
+
+    print("\n1. Model ranking bar chart")
+    fig = plot_model_ranking(DB)
+    save_both(fig, OUT / "01_ranking")
+
+    print("\n2. Cloud cost-effectiveness scatter")
+    fig = plot_cost_effectiveness()
+    save_both(fig, OUT / "02_cost")
+
+    print("\n3a. Speed-accuracy: cloud models")
+    fig = plot_speed_accuracy_cloud(DB)
+    save_both(fig, OUT / "03a_speed_cloud")
+
+    print("\n3b. Speed-accuracy: local models")
+    fig = plot_speed_accuracy_local(DB)
+    save_both(fig, OUT / "03b_speed_local")
+
+    print("\n4. Question difficulty heatmap")
+    fig = plot_question_heatmap(DB)
+    save_both(fig, OUT / "04_questions")
+
+    print(f"\nDone! Files saved to {OUT}/")
