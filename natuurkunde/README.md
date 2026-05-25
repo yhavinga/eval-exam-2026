@@ -172,6 +172,8 @@ Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 Lokale modellen op consumentenhardware presteren nu beter dan wat een jaar geleden state-of-the-art cloud AI was - op een examen dat niet in hun trainingsdata kan zitten.
 
 Voor VWO natuurkunde examenvoorbereiding:
-- **Beste keuze:** qwen3.6-27b lokaal (93.4%, gratis na hardware)
-- **Cloud alternatief:** gpt-5-mini (84.2%, $2/M tokens)
+- **Beste keuze:** qwen3.6-27b lokaal (93.4%, ~€0.21 stroomkosten per examen*)
+- **Cloud alternatief:** gpt-5-mini (84.2%, ~$0.10 per examen)
 - **Vermijd:** gpt-4o en ouder (vision failures, lage scores)
+
+*\*Gebaseerd op 83 min runtime, 500W dual-GPU systeem, €0.30/kWh*
