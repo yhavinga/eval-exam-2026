@@ -11,16 +11,34 @@ Usage:
 import argparse
 import base64
 import json
+import os
 import re
 import sqlite3
 import time
 from collections import defaultdict
 from pathlib import Path
+
+from dotenv import load_dotenv
 from openai import OpenAI
+
+load_dotenv()
 
 DB_PATH = Path("eval.db")
 SCHEMA_PATH = Path("schema.sql")
 IMAGES_BASE = Path("images")
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+LMSTUDIO_BASE_URL = "http://192.168.2.97:1234/v1"
+
+
+def get_api_key(base_url: str) -> str:
+    """Get API key based on provider."""
+    if "openrouter" in base_url:
+        key = os.getenv("OPENROUTER_API_KEY")
+        if not key:
+            raise ValueError("OPENROUTER_API_KEY not set in .env")
+        return key
+    return "not-needed"
 
 # Naming convention: {nr}_{name}[_suffix].png
 # Examples: 01_botsproef.png, 02_botsproef_opgave.png, 03_botsproef_figuur_3.png
@@ -195,7 +213,10 @@ def cmd_sync(args):
 def cmd_solve(args):
     """Generate answers for all questions, grouped by topic."""
     conn = init_db()
-    client = OpenAI(base_url=args.base_url, api_key="not-needed", timeout=3600.0)
+    client = OpenAI(base_url=args.base_url, api_key=get_api_key(args.base_url), timeout=3600.0)
+
+    # Auto-detect inference stack from base_url
+    stack = "openrouter" if "openrouter" in args.base_url else args.stack
 
     # Group questions by (exam_code, question_name) = topic
     questions = conn.execute("""
@@ -292,7 +313,7 @@ def cmd_solve(args):
                 INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, top_p, top_k, presence_penalty, max_tokens, response, reasoning, duration_ms, error)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
-            """, (q["id"], args.model, args.stack, args.base_url, args.temperature, args.top_p, args.top_k, args.presence_penalty, args.max_tokens, response, reasoning, duration_ms, error))
+            """, (q["id"], args.model, stack, args.base_url, args.temperature, args.top_p, args.top_k, args.presence_penalty, args.max_tokens, response, reasoning, duration_ms, error))
             cur.fetchone()
             conn.commit()
 
@@ -361,7 +382,10 @@ def judge_answer(
     question_images = json.loads(question["image_paths"])
     max_punten = question["max_punten"] or 0
 
-    client = OpenAI(base_url=judge_base_url, api_key="not-needed", timeout=3600.0)
+    client = OpenAI(base_url=judge_base_url, api_key=get_api_key(judge_base_url), timeout=3600.0)
+
+    # Auto-detect judge stack from base_url
+    actual_stack = "openrouter" if "openrouter" in judge_base_url else judge_stack
 
     content = []
     for img_path in question_images:
@@ -420,7 +444,7 @@ MOTIVATIE: [uitleg waarom deze score]
         INSERT INTO judgements (answer_id, judge_model, judge_stack, score, max_score, motivation, duration_ms, error)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
-    """, (answer_id, judge_model, judge_stack, score, max_score, motivation, duration_ms, error))
+    """, (answer_id, judge_model, actual_stack, score, max_score, motivation, duration_ms, error))
     result = cur.fetchone()[0]
     conn.commit()
     return result
