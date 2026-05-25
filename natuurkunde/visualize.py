@@ -251,6 +251,77 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
     return fig
 
 
+def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
+    """Bar chart comparing inference speed: LMStudio vs vLLM for gemma-4-31b."""
+    conn = sqlite3.connect(db_path)
+
+    # Get per-question timing for both stacks
+    rows = conn.execute("""
+        SELECT
+            q.question_number,
+            lm.duration_ms/1000.0 as lm_sec,
+            v.duration_ms/1000.0 as vllm_sec
+        FROM questions q
+        JOIN answers lm ON lm.question_id = q.id
+            AND lm.inference_stack = 'lmstudio'
+            AND lm.model = 'google/gemma-4-31b'
+        JOIN answers v ON v.question_id = q.id
+            AND v.inference_stack = 'vllm-int4'
+        ORDER BY q.question_number
+    """).fetchall()
+    conn.close()
+
+    if not rows:
+        # Return empty figure if no data
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.text(0.5, 0.5, 'No comparison data available', ha='center', va='center')
+        return fig
+
+    questions = [f"Q{r[0]}" for r in rows]
+    lm_times = [r[1] for r in rows]
+    vllm_times = [r[2] for r in rows]
+
+    x = np.arange(len(questions))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    bars1 = ax.bar(x - width/2, lm_times, width, label='LMStudio Q4_K_M', color='#888888')
+    bars2 = ax.bar(x + width/2, vllm_times, width, label='vLLM int4-MTP', color='#2563eb')
+
+    ax.set_ylabel('Seconds per question')
+    ax.set_title('Inference Speed: LMStudio vs vLLM (Gemma-4-31B)',
+                 fontsize=11, fontweight='bold', loc='left')
+    ax.set_xticks(x)
+    ax.set_xticklabels(questions, fontsize=8)
+    ax.legend(loc='upper right', fontsize=8)
+
+    # Add speedup annotations on top
+    for i, (lm, vllm) in enumerate(zip(lm_times, vllm_times)):
+        speedup = lm / vllm if vllm > 0 else 0
+        if speedup >= 2:
+            ax.text(i, max(lm, vllm) + 5, f'{speedup:.1f}×',
+                   ha='center', fontsize=7, color='#2563eb')
+
+    # Summary stats
+    avg_lm = sum(lm_times) / len(lm_times)
+    avg_vllm = sum(vllm_times) / len(vllm_times)
+    total_lm = sum(lm_times)
+    total_vllm = sum(vllm_times)
+
+    summary = f'Average: {avg_lm:.0f}s → {avg_vllm:.0f}s ({avg_lm/avg_vllm:.1f}× faster)\n'
+    summary += f'Total: {total_lm/60:.0f}min → {total_vllm/60:.0f}min'
+    ax.text(0.02, 0.98, summary, transform=ax.transAxes, fontsize=8,
+            verticalalignment='top', color='#333333',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    ax.spines['left'].set_visible(True)
+    ax.set_ylim(0, max(lm_times) * 1.15)
+
+    fig.tight_layout()
+    return fig
+
+
 def plot_question_heatmap(db_path: str) -> plt.Figure:
     """Heatmap: questions × top models showing difficulty patterns."""
     # Select top 6 models for readability
@@ -358,5 +429,9 @@ if __name__ == "__main__":
     print("\n4. Question difficulty heatmap")
     fig = plot_question_heatmap(DB)
     save_both(fig, OUT / "04_questions")
+
+    print("\n5. Stack speed comparison (LMStudio vs vLLM)")
+    fig = plot_stack_speed_comparison(DB)
+    save_both(fig, OUT / "05_speed_comparison")
 
     print(f"\nDone! Files saved to {OUT}/")

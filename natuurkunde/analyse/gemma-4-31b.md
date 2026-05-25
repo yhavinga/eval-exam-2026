@@ -37,9 +37,18 @@ Gemma-4-31b behaalde **89.5%** op het VWO natuurkunde examen (vw-1023-a-26-1-o),
 Het model gaf een uitgebreide **tekstuele uitleg** over hoe de banen getekend moeten worden, inclusief correcte fysica (r = mv/Bq), maar maakte **geen daadwerkelijke tekening**.
 
 ### Beoordeling
-**0/3 - Correct beoordeeld door beide judges**
+**0/3 - INCONSISTENT beoordeeld**
 
-Dit is een fundamentele beperking van tekst-gebaseerde LLMs: ze kunnen geen visuele output produceren. Het model begrijpt de fysica volledig maar kan de opdracht niet uitvoeren.
+De gemma-4-31b judge gaf zichzelf 0/3 met als reden "moet een tekening zijn", maar gaf andere modellen met vergelijkbare tekstbeschrijvingen wél 3/3:
+
+| Model | Antwoordtype | Score van gemma-4-31b judge |
+|-------|--------------|----------------------------|
+| qwen/qwen3.6-27b | Tekstbeschrijving | 3/3 |
+| google/gemma-4-26b-a4b | Tekstbeschrijving | 3/3 |
+| mistral-large-2512 | Tekstbeschrijving | 3/3 |
+| **google/gemma-4-31b** | Tekstbeschrijving | **0/3** |
+
+Dit is judge-inconsistentie, geen terechte aftrek. De werkelijke score zou 3/3 moeten zijn, consistent met de beoordeling van andere modellen.
 
 ---
 

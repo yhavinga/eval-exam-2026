@@ -277,6 +277,17 @@ def cmd_solve(args):
             response = None
             reasoning = None
             error = None
+
+            # Build extra_body - include vLLM thinking mode params if not LMStudio
+            extra_body = {
+                "top_k": args.top_k,
+                "presence_penalty": args.presence_penalty
+            }
+            if "8030" in args.base_url or "vllm" in args.base_url.lower():
+                # vLLM: enable thinking mode for reasoning models
+                extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+                extra_body["skip_special_tokens"] = False
+
             for attempt in range(2):
                 try:
                     resp = client.chat.completions.create(
@@ -285,15 +296,12 @@ def cmd_solve(args):
                         max_tokens=args.max_tokens,
                         temperature=args.temperature,
                         top_p=args.top_p,
-                        extra_body={
-                            "top_k": args.top_k,
-                            "presence_penalty": args.presence_penalty
-                        }
+                        extra_body=extra_body
                     )
                     msg = resp.choices[0].message
                     response = msg.content
-                    # Extract reasoning_content if present (Qwen/Gemma thinking mode)
-                    reasoning = getattr(msg, 'reasoning_content', None)
+                    # Extract reasoning if present (vLLM: 'reasoning', LMStudio: 'reasoning_content')
+                    reasoning = getattr(msg, 'reasoning', None) or getattr(msg, 'reasoning_content', None)
                     error = None
                     break
                 except Exception as e:
@@ -413,13 +421,20 @@ MOTIVATIE: [uitleg waarom deze score]
 [SCORE=getal]
 [MAX=getal]"""})
 
+    # Build extra_body - include vLLM thinking mode params if needed
+    extra_body = {}
+    if "8030" in judge_base_url or "vllm" in judge_base_url.lower():
+        extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+        extra_body["skip_special_tokens"] = False
+
     start = time.perf_counter()
     try:
         resp = client.chat.completions.create(
             model=judge_model,
             messages=[{"role": "user", "content": content}],
-            max_tokens=65536,
-            temperature=temperature
+            max_tokens=16384,
+            temperature=temperature,
+            extra_body=extra_body if extra_body else None
         )
         motivation = resp.choices[0].message.content
         score = None

@@ -175,42 +175,57 @@ Lokale modellen gedraaid via LMStudio op een dual-GPU consumer systeem:
 
 **MTP (Multi-Token Prediction)** met LMStudio/llama.cpp werkte niet - verkeerde antwoorden door kapotte chat templates of oneindige reasoning loops. Echter, met vLLM en speculative decoding (`--speculative-config gemma-4-31B-it-assistant, n=4`) werkt MTP wél correct voor Gemma-4.
 
-### Optimalisatie: vLLM + Intel int4-AutoRound
+### Optimalisatie: vLLM + Intel int4-AutoRound + MTP
 
-Eenmaal een model gekozen, zijn er optimalisaties mogelijk die inference **12x sneller** maken:
+Met vLLM en Multi-Token Prediction (MTP) is Gemma-4-31B **3× sneller** bij gelijke kwaliteit:
 
-| Setup | Score | Tijd/vraag | Tokens/s | Kosten/examen |
-|-------|-------|------------|----------|---------------|
-| LMStudio Q4_K_M | 89.5% | ~87s | ~13 | ~€0.21 |
-| **vLLM int4-AutoRound** | **89.5%** | **~7s** | **~113** | **~€0.02** |
+| Setup | Score | Tijd/vraag | Tokens/s | Totaal | Kosten |
+|-------|-------|------------|----------|--------|--------|
+| LMStudio Q4_K_M | ~93%* | 87s | ~15 | 36 min | ~€0.21 |
+| **vLLM int4-MTP** | ~93%* | **29s** | **~57** | **12 min** | **~€0.07** |
 
-Dezelfde score, 12x sneller, 12x goedkoper in stroomkosten.
+*Gecorrigeerd voor judge-inconsistentie (zie [analyse](analyse/gemma-4-31b-vllm.md))
+
+![Speed Comparison](images/benchmark/05_speed_comparison.png)
+
+**Per-vraag speedup varieert van 2× tot 7×:**
+- Korte antwoorden (Q08): 7.4× sneller - MTP acceptance rate hoog
+- Lange reasoning (Q21): 1.0× - geen speedup bij complexe chains
 
 <details>
-<summary><b>vLLM Docker configuratie</b></summary>
+<summary><b>vLLM + MTP configuratie</b></summary>
 
 ```bash
-docker run --gpus all --shm-size 16gb --ipc host -p 8030:8000 \
-  -e VLLM_WORKER_MULTIPROC_METHOD=spawn \
-  -e NCCL_CUMEM_ENABLE=0 \
-  -e NCCL_P2P_DISABLE=1 \
-  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512 \
-  vllm/vllm-openai:latest \
-  --model Intel/gemma-4-31B-it-int4-AutoRound \
+vllm serve Intel/gemma-4-31B-it-int4-AutoRound \
   --tensor-parallel-size 2 \
   --dtype bfloat16 \
-  --max-model-len 32768 \
   --gpu-memory-utilization 0.92 \
+  --max-model-len 32768 \
   --max-num-seqs 4 \
-  --disable-custom-all-reduce
+  --disable-custom-all-reduce \
+  --speculative-config '{"model": "google/gemma-4-31B-it-assistant", "num_speculative_tokens": 4}' \
+  --reasoning-parser gemma4
 ```
 
-| Argument | Waarde | Doel |
-|----------|--------|------|
+**Environment variables (RTX 3090 zonder NVLink):**
+```bash
+VLLM_WORKER_MULTIPROC_METHOD=spawn
+NCCL_CUMEM_ENABLE=0
+NCCL_P2P_DISABLE=1
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
+```
+
+| Setting | Doel |
+|---------|------|
 | `--tensor-parallel-size 2` | Model splitsen over 2 GPUs |
-| `--dtype bfloat16` | KV cache precisie |
-| `--disable-custom-all-reduce` | Nodig voor CUDA graphs op RTX 3090 (geen NVLink) |
+| `--disable-custom-all-reduce` | Vereist voor CUDA graphs zonder NVLink |
+| `--speculative-config` | MTP met 0.5B draft model |
 | `NCCL_P2P_DISABLE=1` | PCIe i.p.v. NVLink communicatie |
+
+**MTP Performance:**
+- Draft model: google/gemma-4-31B-it-assistant (~0.5B, 927MB BF16)
+- Acceptance rate: 80-100%
+- Generation speed: ~57 tok/s (vs ~15 tok/s zonder MTP)
 
 </details>
 
@@ -273,6 +288,7 @@ Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 
 - [qwen3.6-27b](analyse/qwen3.6-27b.md) - Hoogste score, 3 fouten
 - [gemma-4-31b](analyse/gemma-4-31b.md) - Beste judge
+- [gemma-4-31b-vllm](analyse/gemma-4-31b-vllm.md) - vLLM + MTP: 3× sneller
 - [gpt-5-mini](analyse/gpt-5-mini.md) - Beste cloud, geen vision failures
 - [gpt-5.1](analyse/gpt-5.1.md) - Snelste, maar slechter dan gpt-5-mini
 - [gpt-4o](analyse/gpt-4o.md) - Vision failures op Q07/Q25
@@ -291,4 +307,4 @@ Voor VWO natuurkunde examenvoorbereiding:
 - **Cloud alternatief:** gpt-5-mini (84.2%, ~$0.10 per examen)
 - **Vermijd:** gpt-4o en ouder (vision failures, lage scores)
 
-*Stroomkosten lokaal: ~€0.21/examen met LMStudio, ~€0.02/examen met geoptimaliseerde vLLM setup*
+*Stroomkosten lokaal: ~€0.21/examen met LMStudio (36 min), ~€0.07/examen met vLLM+MTP (12 min)*
