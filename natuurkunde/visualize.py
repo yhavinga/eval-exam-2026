@@ -23,6 +23,7 @@ mpl.rcParams['savefig.facecolor'] = 'white'
 # Colors: minimal, functional
 LOCAL_COLOR = '#666666'  # gray for local models
 CLOUD_COLOR = '#2563eb'  # blue for cloud models
+VLLM_COLOR = '#059669'   # green for vLLM optimized
 
 
 def save_both(fig: plt.Figure, base_path: Path):
@@ -34,16 +35,20 @@ def save_both(fig: plt.Figure, base_path: Path):
 
 
 def plot_model_ranking(db_path: str) -> plt.Figure:
-    """Horizontal bar chart of model scores, colored by local/cloud."""
+    """Horizontal bar chart of model scores, colored by local/cloud/vllm."""
     conn = sqlite3.connect(db_path)
+    # Group by model AND stack to show vLLM separately
+    # Use best available judge for each stack
     rows = conn.execute("""
         SELECT a.model,
                ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
                a.inference_stack
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
-        WHERE j.score IS NOT NULL AND j.judge_model = 'google/gemma-4-31b'
-        GROUP BY a.model
+        WHERE j.score IS NOT NULL
+          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model = 'google/gemma-4-31b')
+               OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
+        GROUP BY a.model, a.inference_stack
         ORDER BY pct DESC
     """).fetchall()
     conn.close()
@@ -51,7 +56,15 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
     models = [r[0] for r in rows]
     scores = [r[1] for r in rows]
     stacks = [r[2] for r in rows]
-    colors = [CLOUD_COLOR if s == 'openrouter' else LOCAL_COLOR for s in stacks]
+
+    def get_color(stack):
+        if stack == 'openrouter':
+            return CLOUD_COLOR
+        elif stack == 'vllm-int4':
+            return VLLM_COLOR
+        return LOCAL_COLOR
+
+    colors = [get_color(s) for s in stacks]
 
     fig, ax = plt.subplots(figsize=(8, 5))
     y_pos = np.arange(len(models))
@@ -62,13 +75,17 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
         label = f"{score}%"
         if stack == 'openrouter':
             label += " (cloud)"
+        elif stack == 'vllm-int4':
+            label += " (vLLM)"
         ax.text(score + 0.5, i, label, va='center', fontsize=8, color='#333333')
 
     # Clean model names for y-axis
     clean_names = []
-    for m in models:
+    for m, stack in zip(models, stacks):
         name = m.replace('google/', '').replace('qwen/', '').replace('openai/', '')
         name = name.replace('mistralai/', '').replace('nvidia/', '')
+        if stack == 'vllm-int4':
+            name += ' (vLLM+MTP)'
         clean_names.append(name)
 
     ax.set_yticks(y_pos)
@@ -85,6 +102,15 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
     # Subtle reference lines at key thresholds
     for thresh in [50, 80]:
         ax.axvline(thresh, color='#cccccc', linewidth=0.5, linestyle='-', zorder=0)
+
+    # Legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=VLLM_COLOR, label='vLLM int4-MTP'),
+        Patch(facecolor=LOCAL_COLOR, label='LMStudio Q4_K_M'),
+        Patch(facecolor=CLOUD_COLOR, label='Cloud (OpenRouter)'),
+    ]
+    ax.legend(handles=legend_elements, loc='lower right', fontsize=7, framealpha=0.9)
 
     fig.tight_layout()
     return fig
@@ -190,45 +216,53 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
 
 
 def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
-    """Scatter: inference time vs accuracy for LMStudio models."""
+    """Scatter: inference time vs accuracy for local models (LMStudio + vLLM)."""
     conn = sqlite3.connect(db_path)
-    # Get scores (all answers)
+    # Get scores for LMStudio
     score_rows = conn.execute("""
-        SELECT a.model, ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        SELECT a.model, a.inference_stack,
+               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND j.judge_model = 'google/gemma-4-31b'
-          AND a.inference_stack = 'lmstudio'
-        GROUP BY a.model
+          AND ((a.inference_stack = 'lmstudio' AND j.judge_model = 'google/gemma-4-31b')
+               OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
+        GROUP BY a.model, a.inference_stack
     """).fetchall()
-    scores = {r[0]: r[1] for r in score_rows}
+    scores = {(r[0], r[1]): r[2] for r in score_rows}
 
     # Get timing (only successful answers)
     timing_rows = conn.execute("""
-        SELECT a.model, AVG(a.duration_ms)/1000.0 as avg_sec
+        SELECT a.model, a.inference_stack, AVG(a.duration_ms)/1000.0 as avg_sec
         FROM answers a
-        WHERE a.inference_stack = 'lmstudio' AND a.error IS NULL
-        GROUP BY a.model
+        WHERE a.inference_stack IN ('lmstudio', 'vllm-int4') AND a.error IS NULL
+        GROUP BY a.model, a.inference_stack
     """).fetchall()
-    timing = {r[0]: r[1] for r in timing_rows}
+    timing = {(r[0], r[1]): r[2] for r in timing_rows}
 
-    rows = [(m, timing.get(m, 0), scores.get(m, 0)) for m in scores.keys()]
+    rows = [(m, s, timing.get((m, s), 0), scores.get((m, s), 0))
+            for (m, s) in scores.keys()]
     conn.close()
 
     fig, ax = plt.subplots(figsize=(7, 4))
 
-    for model, sec, score in rows:
-        ax.scatter(sec, score, s=60, color=LOCAL_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
+    for model, stack, sec, score in rows:
+        color = VLLM_COLOR if stack == 'vllm-int4' else LOCAL_COLOR
+        ax.scatter(sec, score, s=60, color=color, edgecolor='white', linewidth=0.5, zorder=3)
         name = model.replace('google/', '').replace('qwen/', '').replace('nvidia/', '')
         name = name.replace('-it-claude-opus-distill', '-distill')
+        if stack == 'vllm-int4':
+            name += ' (vLLM)'
         # Position labels to minimize collision
         offset_x = 2
         offset_y = 1
         if 'qwen3.6-27b' in model:
             offset_x = -55
             offset_y = 1
-        elif 'gemma-4-31b' == name:
+        elif 'gemma-4-31b' in name and stack == 'lmstudio':
+            offset_y = -2.5
+        elif 'gemma-4-31b' in name and stack == 'vllm-int4':
+            offset_x = 3
             offset_y = -2.5
         elif 'nemotron' in model:
             offset_x = 3
@@ -236,7 +270,7 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
 
     ax.set_xlabel('Avg. seconds per question')
     ax.set_ylabel('Accuracy %')
-    ax.set_title('Local Models: Speed vs Accuracy (unoptimized LMStudio)',
+    ax.set_title('Local Models: Speed vs Accuracy',
                  fontsize=11, fontweight='bold', loc='left')
 
     ax.set_xlim(0, 220)
@@ -244,8 +278,8 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
     ax.spines['left'].set_visible(True)
 
     # Note about timing
-    ax.text(110, 15, 'Timing reflects hardware/config,\nnot inherent model speed',
-            fontsize=7, color='#999999', style='italic')
+    ax.text(110, 15, 'Green = vLLM+MTP optimized\nGray = LMStudio Q4_K_M',
+            fontsize=7, color='#666666', style='italic')
 
     fig.tight_layout()
     return fig
@@ -324,14 +358,14 @@ def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
 
 def plot_question_heatmap(db_path: str) -> plt.Figure:
     """Heatmap: questions × top models showing difficulty patterns."""
-    # Select top 6 models for readability
+    # Select top models for readability: (model, stack, display_name)
     top_models = [
-        'qwen/qwen3.6-27b',
-        'google/gemma-4-31b',
-        'qwen/qwen3.6-35b-a3b',
-        'openai/gpt-5-mini',
-        'google/gemma-4-26b-a4b',
-        'openai/gpt-5.1',
+        ('gemma-4-31b', 'vllm-int4', 'gemma-4-31b (vLLM)'),
+        ('qwen/qwen3.6-27b', 'lmstudio', 'qwen3.6-27b'),
+        ('google/gemma-4-31b', 'lmstudio', 'gemma-4-31b'),
+        ('qwen/qwen3.6-35b-a3b', 'lmstudio', 'qwen3.6-35b-a3b'),
+        ('openai/gpt-5-mini', 'openrouter', 'gpt-5-mini'),
+        ('google/gemma-4-26b-a4b', 'lmstudio', 'gemma-4-26b-a4b'),
     ]
 
     conn = sqlite3.connect(db_path)
@@ -344,16 +378,21 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
 
     # Build score matrix
     scores = {}
-    for model in top_models:
+    for model, stack, display in top_models:
+        # Use appropriate judge for each stack
+        if stack == 'vllm-int4':
+            judge = 'gemma-4-31b'
+        else:
+            judge = 'google/gemma-4-31b'
         rows = conn.execute("""
             SELECT q.question_number, j.score, j.max_score
             FROM questions q
             JOIN answers a ON a.question_id = q.id
             JOIN judgements j ON j.answer_id = a.id
-            WHERE a.model = ? AND j.judge_model = 'google/gemma-4-31b'
+            WHERE a.model = ? AND a.inference_stack = ? AND j.judge_model = ?
             ORDER BY q.question_number
-        """, (model,)).fetchall()
-        scores[model] = {r[0]: (r[1], r[2]) for r in rows}
+        """, (model, stack, judge)).fetchall()
+        scores[display] = {r[0]: (r[1], r[2]) for r in rows}
     conn.close()
 
     # Create matrix
@@ -361,10 +400,11 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
     n_models = len(top_models)
     matrix = np.zeros((n_questions, n_models))
 
-    for j, model in enumerate(top_models):
+    display_names = [m[2] for m in top_models]
+    for j, display in enumerate(display_names):
         for i, (qnum, _, _) in enumerate(questions):
-            if qnum in scores[model]:
-                score, max_score = scores[model][qnum]
+            if qnum in scores[display]:
+                score, max_score = scores[display][qnum]
                 matrix[i, j] = score / max_score if max_score > 0 else 0
 
     fig, ax = plt.subplots(figsize=(8, 9))
@@ -374,7 +414,7 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
     im = ax.imshow(matrix, aspect='auto', cmap=cmap, vmin=0, vmax=1)
 
     # Labels
-    clean_models = [m.split('/')[-1] for m in top_models]
+    clean_models = display_names
     ax.set_xticks(np.arange(n_models))
     ax.set_xticklabels(clean_models, rotation=45, ha='right', fontsize=8)
 

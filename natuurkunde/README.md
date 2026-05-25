@@ -14,7 +14,7 @@ Dit is het VWO natuurkunde examen van **mei 2026**. Geen enkel model kan hierop 
 
 - **Maart 2023**: GPT-4 release - text-only, 4K context, sloeg in als een bom
 - **Mei 2024**: GPT-4o release - multimodal, 128K context, tool calling
-- **Mei 2026**: Lokale 27B modellen op consumer hardware scoren **93.4%**, terwijl GPT-4o blijft steken op **57.9%**
+- **Mei 2026**: Lokale ~30B modellen op consumer hardware scoren **>93%**, terwijl GPT-4o blijft steken op **57.9%**
 
 In twee jaar tijd is wat ooit cloud-only frontier capability was, nu beschikbaar op consumentenhardware - en het presteert *beter*. De vooruitgang is eigenlijk ongelooflijk.
 
@@ -33,7 +33,7 @@ In twee jaar tijd is wat ooit cloud-only frontier capability was, nu beschikbaar
 
 ### Mogen We Het Intelligentie Noemen?
 
-De resultaten zijn opmerkelijk. Per vraag krijgt het model **one-shot** de relevante afbeeldingen en als enige tekstprompt: *"Los dit op"* - geen voorbeelden, geen tools, geen calculator. Bij opeenvolgende vragen binnen een topic (opgave) krijgt het model wel de conversatiehistorie: eerdere vragen, antwoorden, en alle bijbehorende afbeeldingen als context. Een lokaal model behaalt zo 93.4% op een VWO eindexamen. Het:
+De resultaten zijn opmerkelijk. Per vraag krijgt het model **zero-shot** de relevante afbeeldingen en als enige tekstprompt: *"Los dit op"* - geen voorbeelden, geen tools, geen calculator. Bij opeenvolgende vragen binnen een topic (opgave) krijgt het model wel de conversatiehistorie: eerdere vragen, antwoorden, en alle bijbehorende afbeeldingen als context. Een lokaal model behaalt zo 93.4% op een VWO eindexamen. Het:
 
 - Leest complexe natuurkundige vraagstukken uit afbeeldingen
 - Past correcte formules toe op nieuwe situaties
@@ -84,20 +84,23 @@ Een vraag waar lokale modellen excelleren en cloud modellen falen:
 
 ### Overall Ranking
 
-| Rank | Model | Score | Type | Opmerking |
-|------|-------|-------|------|-----------|
-| 🥇 | qwen/qwen3.6-27b | **93.4%** | Lokaal | Best presterend |
-| 🥈 | google/gemma-4-31b | **89.5%** | Lokaal | Beste judge |
-| 🥉 | qwen/qwen3.6-35b-a3b | **88.2%** | Lokaal | MoE variant |
-| 4 | openai/gpt-5-mini | **84.2%** | Cloud | Beste cloud model |
-| 5 | google/gemma-4-26b-a4b | **82.9%** | Lokaal | |
-| 6 | openai/gpt-5.1 | **81.6%** | Cloud | Snelste (~5s/vraag) |
-| 7 | mistralai/mistral-large-2512 | 59.2%* | Cloud | *8-image limit |
-| 8 | openai/gpt-4o | **57.9%** | Cloud | Vision failures |
-| 9 | openai/gpt-4o-mini | 38.2% | Cloud | Vision failures |
-| 10 | nvidia/nemotron-3-nano-omni | 20.0% | Lokaal | |
+| Rank | Model | Score | Stack | Opmerking |
+|------|-------|-------|-------|-----------|
+| 🥇 | gemma-4-31b | **~93%**† | vLLM int4-MTP | 3× sneller, zie [analyse](analyse/gemma-4-31b-vllm.md) |
+| 🥈 | qwen/qwen3.6-27b | **93.4%** | LMStudio Q4_K_M | Best presterend (LMStudio) |
+| 🥉 | google/gemma-4-31b | **89.5%** | LMStudio Q4_K_M | |
+| 4 | qwen/qwen3.6-35b-a3b | **88.2%** | LMStudio Q4_K_M | MoE variant |
+| 5 | openai/gpt-5-mini | **84.2%** | Cloud | Beste cloud model |
+| 6 | google/gemma-4-26b-a4b | **82.9%** | LMStudio Q4_K_M | MoE variant |
+| 7 | openai/gpt-5.1 | **81.6%** | Cloud | Snelste (~5s/vraag) |
+| 8 | mistralai/mistral-large-2512 | 59.2%* | Cloud | *8-image limit |
+| 9 | openai/gpt-4o | **57.9%** | Cloud | Vision failures |
+| 10 | openai/gpt-4o-mini | 38.2% | Cloud | Vision failures |
+| 11 | nvidia/nemotron-3-nano-omni | 20.0% | LMStudio Q4_K_M | |
 
-*Judge: google/gemma-4-31b*
+*Judge: google/gemma-4-31b (LMStudio) of gemma-4-31b (vLLM)*
+
+†vLLM raw score is 96.1%, gecorrigeerd voor [judge-inconsistentie](analyse/gemma-4-31b-vllm.md#judge-resultaten) ~93%
 
 ### Cloud Model Kosten vs Prestatie
 
@@ -146,7 +149,9 @@ Voorbeeld: `01_botsproef.png`, `03_botsproef_figuur_3.png`, `cv/01_botsproef_cv.
 
 ### Judge Verificatie
 
-Alle scores zijn beoordeeld door **google/gemma-4-31b** tegen de officiële correctievoorschriften (CV). Steekproeven zijn handmatig geverifieerd - de judge is accuraat, inclusief het toekennen van deelpunten. Cross-validatie met qwen-judges toont dat gemma genuanceerder beoordeelt waar qwen strenger is.
+LMStudio-modellen zijn beoordeeld door **google/gemma-4-31b** (LMStudio), vLLM-modellen door **gemma-4-31b** (vLLM). Steekproeven zijn handmatig geverifieerd tegen de officiële correctievoorschriften (CV).
+
+**Bevinding:** De LMStudio judge vertoonde [self-judgment bias](analyse/gemma-4-31b-vllm.md#q21-linac---tekenvraag-judge-inconsistentie) - gaf zichzelf 0/3 op Q21 maar andere modellen 3/3 voor identieke antwoorden. De vLLM judge was consistenter en strikter volgens CV. Scores zijn waar nodig gecorrigeerd in de ranking.
 
 ### Temperature Settings
 
@@ -218,9 +223,19 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
 | Setting | Doel |
 |---------|------|
 | `--tensor-parallel-size 2` | Model splitsen over 2 GPUs |
+| `--dtype bfloat16` | KV cache precisie (niet model weights) |
 | `--disable-custom-all-reduce` | Vereist voor CUDA graphs zonder NVLink |
 | `--speculative-config` | MTP met 0.5B draft model |
 | `NCCL_P2P_DISABLE=1` | PCIe i.p.v. NVLink communicatie |
+
+**Precisie breakdown:**
+| Component | Precisie | Reden |
+|-----------|----------|-------|
+| Model weights | INT4 (AutoRound) | Past op 2×24GB |
+| KV cache | BF16 | `--dtype` flag |
+| Draft model | BF16 | 0.5B klein genoeg |
+
+*FP8 KV cache niet ondersteund op RTX 3090 (Ampere/sm_86)*
 
 **MTP Performance:**
 - Draft model: google/gemma-4-31B-it-assistant (~0.5B, 927MB BF16)
@@ -298,12 +313,13 @@ Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 
 ## Conclusie
 
-**De democratisering van AI is meetbaar.**
+**VWO natuurkunde: examenniveau bereikt.**
 
-Lokale modellen op consumentenhardware presteren nu beter dan GPT-4o (mei 2024) - op een examen dat niet in hun trainingsdata kan zitten.
+Met 93%+ scoren de beste lokale modellen ruim boven de cesuur voor een 10. Dit op een examen dat niet in hun trainingsdata kan zitten (mei 2026), zonder BINAS, zonder calculator, zero-shot (geen voorbeelden). De resterende fouten zijn edge cases: tekenvragen (LLMs kunnen niet tekenen), subtiele grafiekaflezing, en complexe 3D-vectoranalyse.
 
 Voor VWO natuurkunde examenvoorbereiding:
-- **Beste keuze:** qwen3.6-27b lokaal (93.4%)
+- **Beste (LMStudio):** qwen3.6-27b of gemma-4-31b (~93%, Q4_K_M)
+- **Beste (vLLM):** gemma-4-31b met MTP (3× sneller, marginaal betere vision)
 - **Cloud alternatief:** gpt-5-mini (84.2%, ~$0.10 per examen)
 - **Vermijd:** gpt-4o en ouder (vision failures, lage scores)
 
