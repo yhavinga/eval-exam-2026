@@ -173,7 +173,46 @@ Lokale modellen gedraaid via LMStudio op een dual-GPU consumer systeem:
 | LMStudio | 0.4.14 |
 | Verbruik | ~500W tijdens inferentie |
 
-**MTP (Multi-Token Prediction)** is geprobeerd maar werkte niet goed - ofwel verkeerde antwoorden door kapotte chat templates, ofwel oneindige reasoning loops. Vergelijkbaar probleem als bij de gemma-4 + opus distill finetune die ook faalde door template issues.
+**MTP (Multi-Token Prediction)** met LMStudio/llama.cpp werkte niet - verkeerde antwoorden door kapotte chat templates of oneindige reasoning loops. Echter, met vLLM en speculative decoding (`--speculative-config gemma-4-31B-it-assistant, n=4`) werkt MTP wél correct voor Gemma-4.
+
+### Optimalisatie: vLLM + Intel int4-AutoRound
+
+Eenmaal een model gekozen, zijn er optimalisaties mogelijk die inference **12x sneller** maken:
+
+| Setup | Score | Tijd/vraag | Tokens/s | Kosten/examen |
+|-------|-------|------------|----------|---------------|
+| LMStudio Q4_K_M | 89.5% | ~87s | ~13 | ~€0.21 |
+| **vLLM int4-AutoRound** | **89.5%** | **~7s** | **~113** | **~€0.02** |
+
+Dezelfde score, 12x sneller, 12x goedkoper in stroomkosten.
+
+<details>
+<summary><b>vLLM Docker configuratie</b></summary>
+
+```bash
+docker run --gpus all --shm-size 16gb --ipc host -p 8030:8000 \
+  -e VLLM_WORKER_MULTIPROC_METHOD=spawn \
+  -e NCCL_CUMEM_ENABLE=0 \
+  -e NCCL_P2P_DISABLE=1 \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512 \
+  vllm/vllm-openai:latest \
+  --model Intel/gemma-4-31B-it-int4-AutoRound \
+  --tensor-parallel-size 2 \
+  --dtype bfloat16 \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.92 \
+  --max-num-seqs 4 \
+  --disable-custom-all-reduce
+```
+
+| Argument | Waarde | Doel |
+|----------|--------|------|
+| `--tensor-parallel-size 2` | Model splitsen over 2 GPUs |
+| `--dtype bfloat16` | KV cache precisie |
+| `--disable-custom-all-reduce` | Nodig voor CUDA graphs op RTX 3090 (geen NVLink) |
+| `NCCL_P2P_DISABLE=1` | PCIe i.p.v. NVLink communicatie |
+
+</details>
 
 Cloud modellen via OpenRouter API.
 
@@ -248,8 +287,8 @@ Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 Lokale modellen op consumentenhardware presteren nu beter dan GPT-4o (mei 2024) - op een examen dat niet in hun trainingsdata kan zitten.
 
 Voor VWO natuurkunde examenvoorbereiding:
-- **Beste keuze:** qwen3.6-27b lokaal (93.4%, ~€0.21 stroomkosten per examen*)
+- **Beste keuze:** qwen3.6-27b lokaal (93.4%)
 - **Cloud alternatief:** gpt-5-mini (84.2%, ~$0.10 per examen)
 - **Vermijd:** gpt-4o en ouder (vision failures, lage scores)
 
-*\*Gebaseerd op 83 min runtime, 500W dual-GPU systeem, €0.30/kWh*
+*Stroomkosten lokaal: ~€0.21/examen met LMStudio, ~€0.02/examen met geoptimaliseerde vLLM setup*
