@@ -1,6 +1,6 @@
 # VWO Natuurkunde Examen 2026 - LLM Benchmark
 
-**Lokale modellen op consumentenhardware overtreffen commerciële SOTA van een jaar geleden.**
+**Lokale modellen op consumentenhardware overtreffen GPT-4o - twee jaar geleden nog state-of-the-art.**
 
 ![Model Ranking](images/benchmark/01_ranking.png)
 
@@ -12,11 +12,11 @@ Dit is het VWO natuurkunde examen van **mei 2026**. Geen enkel model kan hierop 
 
 ### Historisch Perspectief
 
-- **Maart 2023**: GPT-4 release - eerste "frontier" multimodal model
-- **Mei 2024**: GPT-4o was state-of-the-art, de standaard voor complexe taken
-- **Mei 2026**: Lokale 27B modellen op een enkele GPU scoren **93.4%**, terwijl GPT-4o blijft steken op **57.9%**
+- **Maart 2023**: GPT-4 release - text-only, 4K context, sloeg in als een bom
+- **Mei 2024**: GPT-4o release - multimodal, 128K context, tool calling
+- **Mei 2026**: Lokale 27B modellen op consumer hardware scoren **93.4%**, terwijl GPT-4o blijft steken op **57.9%**
 
-In drie jaar tijd is wat ooit cloud-only frontier capability was, nu beschikbaar op consumentenhardware - en het presteert *beter*.
+In twee jaar tijd is wat ooit cloud-only frontier capability was, nu beschikbaar op consumentenhardware - en het presteert *beter*. De vooruitgang is eigenlijk ongelooflijk.
 
 ### Wat Meet Deze Benchmark?
 
@@ -27,14 +27,13 @@ In drie jaar tijd is wat ooit cloud-only frontier capability was, nu beschikbaar
 | **Instructie-opvolging uit images** | Model moet opdrachten in plaatjes lezen en uitvoeren |
 | **Nederlands** | Vraag en antwoord volledig in het Nederlands |
 | **Lange context coherentie** | Vragen bouwen voort op eerdere antwoorden binnen topic |
-| **Domeinkennis (natuurkunde)** | Formules, concepten, Binas-tabellen |
+| **Domeinkennis (natuurkunde)** | Formules, concepten, natuurkundige constanten (geen Binas meegeleverd) |
 | **Wetenschappelijke diagrammen** | Grafieken, schakelschema's, vectordiagrammen |
-| **Multi-step redenering** | Gegeven → formule → berekening → conclusie |
 | **Nauwkeurigheid** | Eenheden, significante cijfers, foutmarges |
 
 ### Mogen We Het Intelligentie Noemen?
 
-De resultaten zijn opmerkelijk. Per vraag krijgt het model **one-shot** de relevante afbeeldingen - geen voorbeelden, geen tools, geen calculator. Bij opeenvolgende vragen binnen een topic (opgave) krijgt het model wel de conversatiehistorie: eerdere vragen, antwoorden, en alle bijbehorende afbeeldingen als context. Een lokaal model behaalt zo 93.4% op een VWO eindexamen. Het:
+De resultaten zijn opmerkelijk. Per vraag krijgt het model **one-shot** de relevante afbeeldingen en als enige tekstprompt: *"Los dit op"* - geen voorbeelden, geen tools, geen calculator. Bij opeenvolgende vragen binnen een topic (opgave) krijgt het model wel de conversatiehistorie: eerdere vragen, antwoorden, en alle bijbehorende afbeeldingen als context. Een lokaal model behaalt zo 93.4% op een VWO eindexamen. Het:
 
 - Leest complexe natuurkundige vraagstukken uit afbeeldingen
 - Past correcte formules toe op nieuwe situaties
@@ -43,6 +42,41 @@ De resultaten zijn opmerkelijk. Per vraag krijgt het model **one-shot** de relev
 - Volgt de gevraagde methode, niet alleen het eindantwoord
 
 Of dit "intelligentie" is, is filosofisch. Maar het is onmiskenbaar *indrukwekkend* - en praktisch bruikbaar voor educatie.
+
+---
+
+## Het Examen
+
+**VWO Natuurkunde 2026, Tijdvak 1** - 25 vragen verdeeld over 5 opgaven (topics):
+
+| Opgave | Topic | Vragen | Onderwerp |
+|--------|-------|--------|-----------|
+| 1 | botsproef | 7 | Botsingen, impuls, energie |
+| 2 | elektriciteitspracticum | 3 | Schakelschema's, metingen |
+| 3 | cepheiden | 5 | Astronomie, lichtsterkte, afstand |
+| 4 | morphodidius | 3 | Interferentie, dunne laagjes |
+| 5 | linac | 7 | Deeltjesversneller, Lorentzkracht |
+
+### Voorbeeld: Q17 (morphodidius)
+
+Een vraag waar lokale modellen excelleren en cloud modellen falen:
+
+| Model | Score |
+|-------|-------|
+| qwen/qwen3.6-27b | **5/5** |
+| google/gemma-4-31b | **5/5** |
+| openai/gpt-5.1 | 3/5 |
+
+![Q17 Opgave](images/2026-05/vw-1023-a-26-1-o/17_morphodidius_opgave.png)
+
+*Vraag over lichtinterferentie in de lamelstructuur van een vlindervleugel. Vereist begrip van golflengte in een medium (λ_lamel = λ/n) en dunne-film interferentie.*
+
+**Waarom faalt gpt-5.1?** Het model miste dat licht in de lamel een kortere golflengte heeft dan in lucht - een subtiel maar cruciaal natuurkundig inzicht dat de lokale reasoning models wel correct toepassen.
+
+### Bronmateriaal
+
+- **Opgaven:** [`images/2026-05/vw-1023-a-26-1-o/`](images/2026-05/vw-1023-a-26-1-o/)
+- **Correctievoorschrift:** [`images/2026-05/vw-1023-a-26-1-o/cv/`](images/2026-05/vw-1023-a-26-1-o/cv/)
 
 ---
 
@@ -84,22 +118,52 @@ Of dit "intelligentie" is, is filosofisch. Maar het is onmiskenbaar *indrukwekke
 
 ## Methodologie
 
+### Data Preparatie (eenmalig)
+
+Handmatige screenshots uit de officiële PDF, zoals een leerling ook zou doen. Daarna hernoemd naar een vaste structuur:
+
+```
+images/{jaar}/{examencode}/
+├── {nr}_{topic}.png                    # Hoofdvraag
+├── {nr}_{topic}_opgave.png             # Vraagtekst (indien apart)
+├── {nr}_{topic}_figuur_N.png           # Gerefereerde figuren
+├── {nr}_{topic}_uitwerkbijlage.png     # Antwoordblad
+└── cv/
+    ├── {nr}_{topic}_cv.png             # Correctievoorschrift
+    └── {nr}_{topic}_cv_aanvullend.png  # Aanvullend CV
+```
+
+Voorbeeld: `01_botsproef.png`, `03_botsproef_figuur_3.png`, `cv/01_botsproef_cv.png`
+
 ### Evaluatie Pipeline
 
 ```
-1. SCAN    Exam images → metadata.jsonl
-2. SYNC    metadata.jsonl → SQLite database
-3. SOLVE   Model genereert antwoorden (vision API)
-4. JUDGE   Judge model vergelijkt met correctievoorschrift
+1. SCAN    images/ → metadata.jsonl     (eenmalig)
+2. SYNC    metadata.jsonl → SQLite      (eenmalig)
+3. SOLVE   Model genereert antwoorden   (per model)
+4. JUDGE   Vergelijk met CV             (per judge)
 ```
 
 ### Judge Verificatie
 
 Alle scores zijn beoordeeld door **google/gemma-4-31b** tegen de officiële correctievoorschriften (CV). Steekproeven zijn handmatig geverifieerd - de judge is accuraat, inclusief het toekennen van deelpunten. Cross-validatie met qwen-judges toont dat gemma genuanceerder beoordeelt waar qwen strenger is.
 
+### Temperature Settings
+
+Alle modellen gebruiken de door de fabrikant aanbevolen temperature:
+
+| Model type | Temperature | Reden |
+|------------|-------------|-------|
+| Reasoning (Qwen, Gemma-4) | **1.0** | Greedy decoding (temp=0) veroorzaakt oneindige loops |
+| OpenAI gpt-5.x | 1.0 | Default |
+| OpenAI gpt-4o | 0.2 | Aanbevolen voor analytisch werk |
+| Mistral | 0.15 | Aanbevolen |
+
+**Let op:** Dit is contra-intuïtief. Traditioneel advies voor analytisch werk is lage temperature. Maar reasoning models met chain-of-thought (zoals Qwen en Gemma-4) raken in een herhalende loop bij greedy decoding - ze blijven dezelfde analyse herhalen zonder te convergeren. Qwen's officiële documentatie waarschuwt expliciet dat *"greedy decoding is a trap"* voor thinking models.
+
 ### Hardware
 
-Lokale modellen gedraaid via LMStudio op een enkele consumer GPU (niet geoptimaliseerd voor snelheid). Cloud modellen via OpenRouter API.
+Lokale modellen gedraaid via LMStudio op een dual-GPU consumer systeem (~500W, niet geoptimaliseerd voor snelheid). Cloud modellen via OpenRouter API.
 
 ---
 
@@ -169,7 +233,7 @@ Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 
 **De democratisering van AI is meetbaar.**
 
-Lokale modellen op consumentenhardware presteren nu beter dan wat een jaar geleden state-of-the-art cloud AI was - op een examen dat niet in hun trainingsdata kan zitten.
+Lokale modellen op consumentenhardware presteren nu beter dan GPT-4o (mei 2024) - op een examen dat niet in hun trainingsdata kan zitten.
 
 Voor VWO natuurkunde examenvoorbereiding:
 - **Beste keuze:** qwen3.6-27b lokaal (93.4%, ~€0.21 stroomkosten per examen*)
