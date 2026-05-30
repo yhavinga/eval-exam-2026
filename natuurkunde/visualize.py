@@ -469,14 +469,19 @@ def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
 
 def plot_question_heatmap(db_path: str) -> plt.Figure:
     """Heatmap: questions × top models showing difficulty patterns."""
-    # Select top models for readability: (model, stack, display_name)
+    # (model, stack, reasoning_enabled, display_name)
     top_models = [
-        ('gemma-4-31b', 'vllm-int4', 'gemma-4-31b (vLLM)'),
-        ('qwen/qwen3.6-27b', 'lmstudio', 'qwen3.6-27b'),
-        ('google/gemma-4-31b', 'lmstudio', 'gemma-4-31b'),
-        ('qwen/qwen3.6-35b-a3b', 'lmstudio', 'qwen3.6-35b-a3b'),
-        ('openai/gpt-5-mini', 'openrouter', 'gpt-5-mini'),
-        ('google/gemma-4-26b-a4b', 'lmstudio', 'gemma-4-26b-a4b'),
+        ('gemma-4-31b', 'vllm-int4', 1, 'gemma-4-31b (vLLM)'),
+        ('gemma-4-31b', 'vllm-int4', 0, 'gemma-4-31b (vLLM, no-R)'),
+        ('qwen/qwen3.6-27b', 'lmstudio', 1, 'qwen3.6-27b'),
+        ('google/gemma-4-31b', 'lmstudio', 1, 'gemma-4-31b'),
+        ('qwen/qwen3.6-35b-a3b', 'lmstudio', 1, 'qwen3.6-35b-a3b'),
+        ('openai/gpt-5-mini', 'openrouter', 0, 'gpt-5-mini'),
+        ('openai/gpt-5.1', 'openrouter', 0, 'gpt-5.1'),
+        ('openai/gpt-4o', 'openrouter', 0, 'gpt-4o'),
+        ('openai/gpt-4o-mini', 'openrouter', 0, 'gpt-4o-mini'),
+        ('google/gemma-4-26b-a4b', 'lmstudio', 1, 'gemma-4-26b-a4b'),
+        ('google/gemma-3-27b-it', 'lmstudio', 0, 'gemma-3-27b-it'),
     ]
 
     conn = sqlite3.connect(db_path)
@@ -487,9 +492,10 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
         FROM questions ORDER BY question_number
     """).fetchall()
 
-    # Build score matrix
+    # Build score matrix and compute totals for sorting
     scores = {}
-    for model, stack, display in top_models:
+    totals = {}
+    for model, stack, reasoning, display in top_models:
         # Use appropriate judge for each stack
         if stack == 'vllm-int4':
             judge = 'gemma-4-31b'
@@ -500,18 +506,23 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
             FROM questions q
             JOIN answers a ON a.question_id = q.id
             JOIN judgements j ON j.answer_id = a.id
-            WHERE a.model = ? AND a.inference_stack = ? AND j.judge_model = ?
+            WHERE a.model = ? AND a.inference_stack = ? AND a.reasoning_enabled = ? AND j.judge_model = ?
             ORDER BY q.question_number
-        """, (model, stack, judge)).fetchall()
+        """, (model, stack, reasoning, judge)).fetchall()
         scores[display] = {r[0]: (r[1], r[2]) for r in rows}
+        total_score = sum(r[1] for r in rows if r[1] is not None)
+        total_max = sum(r[2] for r in rows if r[2] is not None)
+        totals[display] = total_score / total_max if total_max > 0 else 0
     conn.close()
+
+    # Sort models by total score descending
+    display_names = sorted([m[3] for m in top_models], key=lambda d: totals[d], reverse=True)
 
     # Create matrix
     n_questions = len(questions)
-    n_models = len(top_models)
+    n_models = len(display_names)
     matrix = np.zeros((n_questions, n_models))
 
-    display_names = [m[2] for m in top_models]
     for j, display in enumerate(display_names):
         for i, (qnum, _, _) in enumerate(questions):
             if qnum in scores[display]:
