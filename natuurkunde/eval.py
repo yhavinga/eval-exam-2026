@@ -243,10 +243,10 @@ def cmd_solve(args):
         messages = []
 
         for q in topic_questions:
-            # Check if already answered with this model
+            # Check if already answered with same model, stack, and reasoning mode
             existing = conn.execute(
-                "SELECT id, response FROM answers WHERE question_id = ? AND model = ?",
-                (q["id"], args.model)
+                "SELECT id, response FROM answers WHERE question_id = ? AND model = ? AND inference_stack = ? AND reasoning_enabled = ?",
+                (q["id"], args.model, stack, not args.no_reasoning)
             ).fetchone()
 
             if existing and not args.force:
@@ -284,8 +284,8 @@ def cmd_solve(args):
                 "presence_penalty": args.presence_penalty
             }
             if "8030" in args.base_url or "vllm" in args.base_url.lower():
-                # vLLM: enable thinking mode for reasoning models
-                extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+                # vLLM: control thinking mode via --no-reasoning flag
+                extra_body["chat_template_kwargs"] = {"enable_thinking": not args.no_reasoning}
                 extra_body["skip_special_tokens"] = False
 
             for attempt in range(2):
@@ -318,10 +318,10 @@ def cmd_solve(args):
 
             # Save to DB (both response and reasoning)
             cur = conn.execute("""
-                INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, top_p, top_k, presence_penalty, max_tokens, response, reasoning, duration_ms, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO answers (question_id, model, inference_stack, base_url, temperature, top_p, top_k, presence_penalty, max_tokens, response, reasoning, reasoning_enabled, duration_ms, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id
-            """, (q["id"], args.model, stack, args.base_url, args.temperature, args.top_p, args.top_k, args.presence_penalty, args.max_tokens, response, reasoning, duration_ms, error))
+            """, (q["id"], args.model, stack, args.base_url, args.temperature, args.top_p, args.top_k, args.presence_penalty, args.max_tokens, response, reasoning, bool(reasoning), duration_ms, error))
             cur.fetchone()
             conn.commit()
 
@@ -362,7 +362,7 @@ def cmd_judge(args):
     for a in answers:
         print(f"  {a['exam_code']} Q{a['question_number']} (answer {a['id']}): judging...", end=" ", flush=True)
         try:
-            judgement_id = judge_answer(conn, a["id"], args.judge_model, args.judge_base_url, args.judge_stack, args.temperature)
+            judgement_id = judge_answer(conn, a["id"], args.judge_model, args.judge_base_url, args.judge_stack, args.temperature, args.no_reasoning)
             j = conn.execute("SELECT score, max_score, duration_ms FROM judgements WHERE id = ?", (judgement_id,)).fetchone()
             print(f"{j['score']}/{j['max_score']} ({j['duration_ms']}ms)")
         except ValueError as e:
@@ -377,7 +377,8 @@ def judge_answer(
     judge_model: str,
     judge_base_url: str,
     judge_stack: str = "openai",
-    temperature: float = 1.0
+    temperature: float = 1.0,
+    no_reasoning: bool = False
 ) -> int:
     """Judge an answer using correctievoorschrift, returns judgement id."""
     answer = conn.execute("SELECT * FROM answers WHERE id = ?", (answer_id,)).fetchone()
@@ -424,7 +425,7 @@ MOTIVATIE: [uitleg waarom deze score]
     # Build extra_body - include vLLM thinking mode params if needed
     extra_body = {}
     if "8030" in judge_base_url or "vllm" in judge_base_url.lower():
-        extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+        extra_body["chat_template_kwargs"] = {"enable_thinking": not no_reasoning}
         extra_body["skip_special_tokens"] = False
 
     start = time.perf_counter()
@@ -489,6 +490,7 @@ def main():
     p_solve.add_argument("--top-k", type=int, default=20, help="Top-k sampling")
     p_solve.add_argument("--presence-penalty", type=float, default=1.5, help="Presence penalty (shortens thinking)")
     p_solve.add_argument("--max-tokens", type=int, default=65536, help="Max tokens for response")
+    p_solve.add_argument("--no-reasoning", action="store_true", help="Disable reasoning/thinking mode")
     p_solve.add_argument("--force", action="store_true", help="Re-solve already answered questions")
     p_solve.set_defaults(func=cmd_solve)
 
@@ -498,6 +500,7 @@ def main():
     p_judge.add_argument("--judge-base-url", default="http://192.168.2.97:1234/v1", help="Judge API base URL")
     p_judge.add_argument("--judge-stack", default="lmstudio", help="Judge inference stack")
     p_judge.add_argument("--temperature", type=float, default=1.0, help="Temperature for judge (1.0 for Qwen reasoning)")
+    p_judge.add_argument("--no-reasoning", action="store_true", help="Disable reasoning/thinking mode for judge")
     p_judge.add_argument("--force", action="store_true", help="Re-judge already judged answers")
     p_judge.add_argument("--answer-model", help="Only judge answers from this model")
     p_judge.set_defaults(func=cmd_judge)

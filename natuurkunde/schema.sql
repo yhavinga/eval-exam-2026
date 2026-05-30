@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS answers (
     -- response
     response TEXT,                          -- final answer (content)
     reasoning TEXT,                         -- thinking/reasoning tokens (reasoning_content)
+    reasoning_enabled INTEGER,              -- 1 if reasoning was enabled, 0 if disabled
     duration_ms INTEGER,
     error TEXT
 );

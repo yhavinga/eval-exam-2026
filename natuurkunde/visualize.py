@@ -289,35 +289,41 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
     """Scatter: inference time vs accuracy for ALL models (cloud + local + vLLM)."""
     conn = sqlite3.connect(db_path)
 
-    # Get scores with appropriate judge per stack
+    # Get scores with appropriate judge per stack, grouped by reasoning mode
+    # Only include groups with at least 5 answers (filters out outliers like 2 empty reasoning questions)
     score_rows = conn.execute("""
-        SELECT a.model, a.inference_stack,
-               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
+               COUNT(*) as cnt
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
           AND ((a.inference_stack != 'vllm-int4' AND j.judge_model = 'google/gemma-4-31b')
                OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
-        GROUP BY a.model, a.inference_stack
+        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+        HAVING COUNT(*) >= 5
     """).fetchall()
-    scores = {(r[0], r[1]): r[2] for r in score_rows}
+    scores = {(r[0], r[1], r[2]): r[3] for r in score_rows}
 
-    # Get timing (only successful answers)
+    # Get timing (only successful answers), grouped by reasoning mode
     timing_rows = conn.execute("""
-        SELECT a.model, a.inference_stack, AVG(a.duration_ms)/1000.0 as avg_sec
+        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+               AVG(a.duration_ms)/1000.0 as avg_sec,
+               COUNT(*) as cnt
         FROM answers a
         WHERE a.error IS NULL
-        GROUP BY a.model, a.inference_stack
+        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+        HAVING COUNT(*) >= 5
     """).fetchall()
-    timing = {(r[0], r[1]): r[2] for r in timing_rows}
+    timing = {(r[0], r[1], r[2]): r[3] for r in timing_rows}
 
-    rows = [(m, s, timing.get((m, s), 0), scores.get((m, s), 0))
-            for (m, s) in scores.keys() if timing.get((m, s), 0) > 0]
+    rows = [(m, s, nr, timing.get((m, s, nr), 0), scores.get((m, s, nr), 0))
+            for (m, s, nr) in scores.keys() if timing.get((m, s, nr), 0) > 0]
     conn.close()
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    for model, stack, sec, score in rows:
+    for model, stack, no_reasoning, sec, score in rows:
         # Color by stack type
         if stack == 'openrouter':
             color = CLOUD_COLOR
@@ -326,8 +332,19 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
         else:
             color = LOCAL_COLOR
 
-        ax.scatter(sec, score, s=60, color=color, edgecolor='white',
-                   linewidth=0.5, zorder=3)
+        # Marker: filled circle for reasoning, hollow circle for cloud (unknown), hollow triangle for explicit no-reasoning
+        if stack == 'openrouter':
+            # Cloud: hollow circle (reasoning unknown)
+            ax.scatter(sec, score, s=60, marker='o', facecolors='none',
+                       edgecolors=color, linewidth=1.5, zorder=3)
+        elif no_reasoning:
+            # Explicit no-reasoning: hollow triangle
+            ax.scatter(sec, score, s=60, marker='^', facecolors='none',
+                       edgecolors=color, linewidth=1.5, zorder=3)
+        else:
+            # With reasoning: filled circle
+            ax.scatter(sec, score, s=60, color=color, edgecolor='white',
+                       linewidth=0.5, zorder=3)
 
         # Clean model name for label
         name = model.replace('google/', '').replace('qwen/', '')
@@ -335,6 +352,8 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
         name = name.replace('-it-claude-opus-distill', '-distill')
         if stack == 'vllm-int4':
             name += ' (vLLM)'
+        if no_reasoning and stack != 'openrouter':
+            name += ' no-R'
 
         # Default: label to the right and slightly above
         offset_x = 2
@@ -357,12 +376,19 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
     ax.set_ylim(15, 100)
     ax.spines['left'].set_visible(True)
 
-    # Legend
+    # Legend with marker shapes
     from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
     legend_elements = [
         Patch(facecolor=CLOUD_COLOR, label='Cloud (OpenRouter)'),
         Patch(facecolor=LOCAL_COLOR, label='LMStudio Q4_K_M'),
         Patch(facecolor=VLLM_COLOR, label='vLLM int4-MTP'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='gray',
+               markersize=8, label='With reasoning'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='none',
+               markeredgecolor='gray', markersize=8, label='Reasoning unknown'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='none',
+               markeredgecolor='gray', markersize=8, label='No reasoning'),
     ]
     ax.legend(handles=legend_elements, loc='lower right', fontsize=7, framealpha=0.9)
 
