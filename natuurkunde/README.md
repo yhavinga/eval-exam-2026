@@ -200,6 +200,8 @@ Met vLLM en Multi-Token Prediction (MTP) is Gemma-4-31B **3× sneller** bij geli
 <details>
 <summary><b>vLLM + MTP configuratie</b></summary>
 
+*Gebaseerd op configuraties uit [club-3090](https://github.com/noonghunna/club-3090) - uitstekende resource voor dual RTX 3090 setups.*
+
 ```bash
 vllm serve Intel/gemma-4-31B-it-int4-AutoRound \
   --tensor-parallel-size 2 \
