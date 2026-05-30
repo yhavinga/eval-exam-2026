@@ -474,6 +474,7 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
         ('gemma-4-31b', 'vllm-int4', 1, 'gemma-4-31b', 'gemma-4-31b (vLLM)'),
         ('gemma-4-31b', 'vllm-int4', 0, 'gemma-4-31b', 'gemma-4-31b (vLLM, no-R)'),
         ('qwen/qwen3.6-27b', 'lmstudio', 1, 'google/gemma-4-31b', 'qwen3.6-27b'),
+        ('anthropic/claude-opus-4.8', 'openrouter', 0, 'gemma-4-31b', 'claude-opus-4.8'),
         ('google/gemma-4-31b', 'lmstudio', 1, 'google/gemma-4-31b', 'gemma-4-31b'),
         ('openai/gpt-5.4', 'openrouter', 0, 'gemma-4-31b', 'gpt-5.4'),
         ('qwen/qwen3.6-35b-a3b', 'lmstudio', 1, 'google/gemma-4-31b', 'qwen3.6-35b-a3b'),
