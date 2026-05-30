@@ -153,6 +153,8 @@ Voorbeeld: `01_botsproef.png`, `03_botsproef_figuur_3.png`, `cv/01_botsproef_cv.
 
 LMStudio-modellen zijn beoordeeld door **google/gemma-4-31b** (LMStudio), vLLM-modellen door **gemma-4-31b** (vLLM). Steekproeven zijn handmatig geverifieerd tegen de officiële correctievoorschriften (CV).
 
+**Keuze judge:** Meerdere judges getest (qwen3.6-27b, qwen3.6-35b-a3b, gemma-4-31b). Qwen-judges bleken te streng: ze accepteerden alleen exacte CV-methodes (Q06: alternatieve afleiding 0/4 vs gemma 4/4) en gaven te weinig partial credit bij cascadefouten (Q13: 1/4 vs gemma 3/4). Gemma-4-31b volgt beter de geest van het CV — deelpunten voor correcte stappen, onafhankelijk van volgfouten.
+
 **Bevinding:** De LMStudio judge vertoonde [self-judgment bias](analyse/gemma-4-31b-vllm.md#q21-linac---tekenvraag-judge-inconsistentie) - gaf zichzelf 0/3 op Q21 maar andere modellen 3/3 voor identieke antwoorden. De vLLM judge was consistenter en strikter volgens CV. Scores zijn waar nodig gecorrigeerd in de ranking.
 
 ### Temperature Settings
