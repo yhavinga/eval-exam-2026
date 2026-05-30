@@ -197,54 +197,7 @@ Met vLLM en Multi-Token Prediction (MTP) is Gemma-4-31B **3× sneller** bij geli
 - Korte antwoorden (Q08): 7.4× sneller - MTP acceptance rate hoog
 - Lange reasoning (Q21): 1.0× - geen speedup bij complexe chains
 
-<details>
-<summary><b>vLLM + MTP configuratie</b></summary>
-
-*Gebaseerd op configuraties uit [club-3090](https://github.com/noonghunna/club-3090) - uitstekende resource voor dual RTX 3090 setups.*
-
-```bash
-vllm serve Intel/gemma-4-31B-it-int4-AutoRound \
-  --tensor-parallel-size 2 \
-  --dtype bfloat16 \
-  --gpu-memory-utilization 0.92 \
-  --max-model-len 32768 \
-  --max-num-seqs 4 \
-  --disable-custom-all-reduce \
-  --speculative-config '{"model": "google/gemma-4-31B-it-assistant", "num_speculative_tokens": 4}' \
-  --reasoning-parser gemma4
-```
-
-**Environment variables (RTX 3090 zonder NVLink):**
-```bash
-VLLM_WORKER_MULTIPROC_METHOD=spawn
-NCCL_CUMEM_ENABLE=0
-NCCL_P2P_DISABLE=1
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:512
-```
-
-| Setting | Doel |
-|---------|------|
-| `--tensor-parallel-size 2` | Model splitsen over 2 GPUs |
-| `--dtype bfloat16` | KV cache precisie (niet model weights) |
-| `--disable-custom-all-reduce` | Vereist voor CUDA graphs zonder NVLink |
-| `--speculative-config` | MTP met 0.5B draft model |
-| `NCCL_P2P_DISABLE=1` | PCIe i.p.v. NVLink communicatie |
-
-**Precisie breakdown:**
-| Component | Precisie | Reden |
-|-----------|----------|-------|
-| Model weights | INT4 (AutoRound) | Past op 2×24GB |
-| KV cache | BF16 | `--dtype` flag |
-| Draft model | BF16 | 0.5B klein genoeg |
-
-*FP8 KV cache niet ondersteund op RTX 3090 (Ampere/sm_86)*
-
-**MTP Performance:**
-- Draft model: google/gemma-4-31B-it-assistant (~0.5B, 927MB BF16)
-- Acceptance rate: 80-100%
-- Generation speed: ~57 tok/s (vs ~15 tok/s zonder MTP)
-
-</details>
+**vLLM + MTP configuratie:** [`scripts/run-gemma4-vllm.sh`](scripts/run-gemma4-vllm.sh) — gebaseerd op [club-3090](https://github.com/noonghunna/club-3090) recipes voor dual RTX 3090.
 
 Cloud modellen via OpenRouter API.
 
