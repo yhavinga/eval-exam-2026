@@ -469,19 +469,20 @@ def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
 
 def plot_question_heatmap(db_path: str) -> plt.Figure:
     """Heatmap: questions × top models showing difficulty patterns."""
-    # (model, stack, reasoning_enabled, display_name)
+    # (model, stack, reasoning_enabled, judge, display_name)
     top_models = [
-        ('gemma-4-31b', 'vllm-int4', 1, 'gemma-4-31b (vLLM)'),
-        ('gemma-4-31b', 'vllm-int4', 0, 'gemma-4-31b (vLLM, no-R)'),
-        ('qwen/qwen3.6-27b', 'lmstudio', 1, 'qwen3.6-27b'),
-        ('google/gemma-4-31b', 'lmstudio', 1, 'gemma-4-31b'),
-        ('qwen/qwen3.6-35b-a3b', 'lmstudio', 1, 'qwen3.6-35b-a3b'),
-        ('openai/gpt-5-mini', 'openrouter', 0, 'gpt-5-mini'),
-        ('openai/gpt-5.1', 'openrouter', 0, 'gpt-5.1'),
-        ('openai/gpt-4o', 'openrouter', 0, 'gpt-4o'),
-        ('openai/gpt-4o-mini', 'openrouter', 0, 'gpt-4o-mini'),
-        ('google/gemma-4-26b-a4b', 'lmstudio', 1, 'gemma-4-26b-a4b'),
-        ('google/gemma-3-27b-it', 'lmstudio', 0, 'gemma-3-27b-it'),
+        ('gemma-4-31b', 'vllm-int4', 1, 'gemma-4-31b', 'gemma-4-31b (vLLM)'),
+        ('gemma-4-31b', 'vllm-int4', 0, 'gemma-4-31b', 'gemma-4-31b (vLLM, no-R)'),
+        ('qwen/qwen3.6-27b', 'lmstudio', 1, 'google/gemma-4-31b', 'qwen3.6-27b'),
+        ('google/gemma-4-31b', 'lmstudio', 1, 'google/gemma-4-31b', 'gemma-4-31b'),
+        ('openai/gpt-5.4', 'openrouter', 0, 'gemma-4-31b', 'gpt-5.4'),
+        ('qwen/qwen3.6-35b-a3b', 'lmstudio', 1, 'google/gemma-4-31b', 'qwen3.6-35b-a3b'),
+        ('openai/gpt-5-mini', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-5-mini'),
+        ('openai/gpt-5.1', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-5.1'),
+        ('openai/gpt-4o', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-4o'),
+        ('openai/gpt-4o-mini', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-4o-mini'),
+        ('google/gemma-4-26b-a4b', 'lmstudio', 1, 'google/gemma-4-31b', 'gemma-4-26b-a4b'),
+        ('google/gemma-3-27b-it', 'lmstudio', 0, 'google/gemma-4-31b', 'gemma-3-27b-it'),
     ]
 
     conn = sqlite3.connect(db_path)
@@ -495,12 +496,7 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
     # Build score matrix and compute totals for sorting
     scores = {}
     totals = {}
-    for model, stack, reasoning, display in top_models:
-        # Use appropriate judge for each stack
-        if stack == 'vllm-int4':
-            judge = 'gemma-4-31b'
-        else:
-            judge = 'google/gemma-4-31b'
+    for model, stack, reasoning, judge, display in top_models:
         rows = conn.execute("""
             SELECT q.question_number, j.score, j.max_score
             FROM questions q
@@ -516,7 +512,7 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
     conn.close()
 
     # Sort models by total score descending
-    display_names = sorted([m[3] for m in top_models], key=lambda d: totals[d], reverse=True)
+    display_names = sorted([m[4] for m in top_models], key=lambda d: totals[d], reverse=True)
 
     # Create matrix
     n_questions = len(questions)
