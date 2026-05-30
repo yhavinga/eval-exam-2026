@@ -92,7 +92,7 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
     ax.set_yticklabels(clean_names, fontsize=8)
     ax.invert_yaxis()
     ax.set_xlim(0, 105)
-    ax.set_xlabel('Accuracy %')
+    ax.set_xlabel('Score %')
     ax.set_title('VWO Physics Exam: Model Ranking', fontsize=11, fontweight='bold', loc='left')
 
     # Remove x-axis ticks (bars speak for themselves)
@@ -145,7 +145,7 @@ def plot_cost_effectiveness() -> plt.Figure:
 
     ax.set_xscale('log')
     ax.set_xlabel('Output price ($/M tokens)')
-    ax.set_ylabel('Accuracy %')
+    ax.set_ylabel('Score %')
     ax.set_title('Cloud Model Cost-Effectiveness', fontsize=11, fontweight='bold', loc='left')
 
     # Minimal grid
@@ -204,8 +204,8 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
         ax.text(sec + offset_x, score + offset_y, name, fontsize=8, color='#333333')
 
     ax.set_xlabel('Avg. seconds per question')
-    ax.set_ylabel('Accuracy %')
-    ax.set_title('Cloud Models: Speed vs Accuracy', fontsize=11, fontweight='bold', loc='left')
+    ax.set_ylabel('Score %')
+    ax.set_title('Cloud Models: Speed vs Score', fontsize=11, fontweight='bold', loc='left')
 
     ax.set_xlim(0, 30)
     ax.set_ylim(30, 90)
@@ -269,8 +269,8 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
         ax.text(sec + offset_x, score + offset_y, name, fontsize=7, color='#333333')
 
     ax.set_xlabel('Avg. seconds per question')
-    ax.set_ylabel('Accuracy %')
-    ax.set_title('Local Models: Speed vs Accuracy',
+    ax.set_ylabel('Score %')
+    ax.set_title('Local Models: Speed vs Score',
                  fontsize=11, fontweight='bold', loc='left')
 
     ax.set_xlim(0, 220)
@@ -280,6 +280,91 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
     # Note about timing
     ax.text(110, 15, 'Green = vLLM+MTP optimized\nGray = LMStudio Q4_K_M',
             fontsize=7, color='#666666', style='italic')
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
+    """Scatter: inference time vs accuracy for ALL models (cloud + local + vLLM)."""
+    conn = sqlite3.connect(db_path)
+
+    # Get scores with appropriate judge per stack
+    score_rows = conn.execute("""
+        SELECT a.model, a.inference_stack,
+               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        FROM answers a
+        JOIN judgements j ON j.answer_id = a.id
+        WHERE j.score IS NOT NULL
+          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model = 'google/gemma-4-31b')
+               OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
+        GROUP BY a.model, a.inference_stack
+    """).fetchall()
+    scores = {(r[0], r[1]): r[2] for r in score_rows}
+
+    # Get timing (only successful answers)
+    timing_rows = conn.execute("""
+        SELECT a.model, a.inference_stack, AVG(a.duration_ms)/1000.0 as avg_sec
+        FROM answers a
+        WHERE a.error IS NULL
+        GROUP BY a.model, a.inference_stack
+    """).fetchall()
+    timing = {(r[0], r[1]): r[2] for r in timing_rows}
+
+    rows = [(m, s, timing.get((m, s), 0), scores.get((m, s), 0))
+            for (m, s) in scores.keys() if timing.get((m, s), 0) > 0]
+    conn.close()
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    for model, stack, sec, score in rows:
+        # Color by stack type
+        if stack == 'openrouter':
+            color = CLOUD_COLOR
+        elif stack == 'vllm-int4':
+            color = VLLM_COLOR
+        else:
+            color = LOCAL_COLOR
+
+        ax.scatter(sec, score, s=60, color=color, edgecolor='white',
+                   linewidth=0.5, zorder=3)
+
+        # Clean model name for label
+        name = model.replace('google/', '').replace('qwen/', '')
+        name = name.replace('openai/', '').replace('mistralai/', '').replace('nvidia/', '')
+        name = name.replace('-it-claude-opus-distill', '-distill')
+        if stack == 'vllm-int4':
+            name += ' (vLLM)'
+
+        # Default: label to the right and slightly above
+        offset_x = 2
+        offset_y = 1
+
+        # Only fix collisions
+        if 'gpt-4o' in model and 'mini' not in model:
+            offset_y = 3  # above gpt-4o-mini
+        elif 'mistral-large' in model:
+            offset_y = -3  # below to avoid gemma-3-27b-it
+
+        ax.text(sec + offset_x, score + offset_y, name, fontsize=7, color='#333333')
+
+    ax.set_xlabel('Avg. seconds per question')
+    ax.set_ylabel('Score %')
+    ax.set_title('All Models: Speed vs Score', fontsize=11, fontweight='bold', loc='center')
+
+    # Linear axis limits
+    ax.set_xlim(0, 220)
+    ax.set_ylim(15, 100)
+    ax.spines['left'].set_visible(True)
+
+    # Legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=CLOUD_COLOR, label='Cloud (OpenRouter)'),
+        Patch(facecolor=LOCAL_COLOR, label='LMStudio Q4_K_M'),
+        Patch(facecolor=VLLM_COLOR, label='vLLM int4-MTP'),
+    ]
+    ax.legend(handles=legend_elements, loc='lower right', fontsize=7, framealpha=0.9)
 
     fig.tight_layout()
     return fig
@@ -465,6 +550,10 @@ if __name__ == "__main__":
     print("\n3b. Speed-accuracy: local models")
     fig = plot_speed_accuracy_local(DB)
     save_both(fig, OUT / "03b_speed_local")
+
+    print("\n3c. Speed-accuracy: all models combined")
+    fig = plot_speed_accuracy_all(DB)
+    save_both(fig, OUT / "03c_speed_all")
 
     print("\n4. Question difficulty heatmap")
     fig = plot_question_heatmap(DB)
