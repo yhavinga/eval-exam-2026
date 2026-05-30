@@ -59,12 +59,14 @@ Of dit "intelligentie" is, is filosofisch. Maar het is onmiskenbaar *indrukwekke
 
 ### Voorbeeld: Q17 (morphodidius)
 
-Een vraag waar lokale modellen excelleren en cloud modellen falen:
+Een vraag waar reasoning models excelleren:
 
 | Model | Score |
 |-------|-------|
 | qwen/qwen3.6-27b | **5/5** |
 | google/gemma-4-31b | **5/5** |
+| claude-opus-4.8 | **5/5** |
+| gpt-5.4 | **5/5** |
 | openai/gpt-5.1 | 3/5 |
 
 ![Q17 Opgave](images/2026-05/vw-1023-a-26-1-o/17_morphodidius_opgave.png)
@@ -86,27 +88,27 @@ Een vraag waar lokale modellen excelleren en cloud modellen falen:
 
 | Rank | Model | Score | Stack | Opmerking |
 |------|-------|-------|-------|-----------|
-| 🥇 | gemma-4-31b | **~93%**† | vLLM int4-MTP | 3× sneller, zie [analyse](analyse/gemma-4-31b-vllm.md) |
+| 🥇 | gemma-4-31b | **94.7%** | vLLM int4-MTP | 3× sneller, zie [analyse](analyse/gemma-4-31b-vllm.md) |
 | 🥈 | qwen/qwen3.6-27b | **93.4%** | LMStudio Q4_K_M | Best presterend (LMStudio) |
-| 🥉 | google/gemma-4-31b | **89.5%** | LMStudio Q4_K_M | |
-| 4 | qwen/qwen3.6-35b-a3b | **88.2%** | LMStudio Q4_K_M | MoE variant |
-| 5 | openai/gpt-5-mini | **84.2%** | Cloud | Beste cloud model |
-| 6 | google/gemma-4-26b-a4b | **82.9%** | LMStudio Q4_K_M | MoE variant |
-| 7 | openai/gpt-5.1 | **81.6%** | Cloud | Snelste (~5s/vraag) |
-| 8 | mistralai/mistral-large-2512 | 59.2%* | Cloud | *8-image limit |
-| 9 | openai/gpt-4o | **57.9%** | Cloud | Vision failures |
-| 10 | openai/gpt-4o-mini | 38.2% | Cloud | Vision failures |
-| 11 | nvidia/nemotron-3-nano-omni | 20.0% | LMStudio Q4_K_M | |
+| 🥉 | claude-opus-4.8 | **92.1%** | Cloud | Beste cloud model |
+| 4 | google/gemma-4-31b | **89.5%** | LMStudio Q4_K_M | |
+| 4 | openai/gpt-5.4 | **89.5%** | Cloud | |
+| 6 | qwen/qwen3.6-35b-a3b | **88.2%** | LMStudio Q4_K_M | MoE variant |
+| 7 | openai/gpt-5-mini | **84.2%** | Cloud | Beste prijs/prestatie |
+| 8 | google/gemma-4-26b-a4b | **82.9%** | LMStudio Q4_K_M | MoE variant |
+| 9 | openai/gpt-5.1 | **81.6%** | Cloud | Snelste (~5s/vraag) |
+| 10 | mistralai/mistral-large-2512 | 59.2%* | Cloud | *8-image limit |
+| 11 | openai/gpt-4o | **57.9%** | Cloud | Vision failures |
+| 12 | openai/gpt-4o-mini | 38.2% | Cloud | Vision failures |
+| 13 | nvidia/nemotron-3-nano-omni | 20.0% | LMStudio Q4_K_M | |
 
 *Judge: google/gemma-4-31b (LMStudio) of gemma-4-31b (vLLM)*
-
-†vLLM raw score is 96.1%, gecorrigeerd voor [judge-inconsistentie](analyse/gemma-4-31b-vllm.md#judge-resultaten) ~93%
 
 ### Cloud Model Kosten vs Prestatie
 
 ![Cost Effectiveness](images/benchmark/02_cost.png)
 
-**gpt-5-mini** domineert: hoogste score (84.2%) bij laagste prijs ($2/M output tokens).
+**claude-opus-4.8** haalt de hoogste cloud score (92.1%). **gpt-5-mini** blijft beste prijs/prestatie ($2/M output tokens, 84.2%).
 
 ### Vraag Moeilijkheid
 
@@ -114,7 +116,7 @@ Een vraag waar lokale modellen excelleren en cloud modellen falen:
 
 **Opvallend:**
 - **Q04** (relatieve beweging): Bijna alle modellen falen - conceptuele verwarring tussen snelheid en positie
-- **Q22** (Lorentzkracht): Lastig maar niet onmogelijk - qwen3.6-27b scoort 100%
+- **Q22** (Lorentzkracht): Alle cloud modellen falen - alleen qwen3.6-27b en gemma-4-31b (vLLM) scoren 100%
 - **Elektriciteitspracticum** (Q08-Q10): Reasoning models scoren hier 100%
 
 ---
@@ -256,11 +258,13 @@ natuurkunde/
 
 Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 
-- [qwen3.6-27b](analyse/qwen3.6-27b.md) - Hoogste score, 3 fouten
-- [gemma-4-31b](analyse/gemma-4-31b.md) - Beste judge
-- [gemma-4-31b-vllm](analyse/gemma-4-31b-vllm.md) - vLLM + MTP: 3× sneller
-- [gpt-5-mini](analyse/gpt-5-mini.md) - Beste cloud, geen vision failures
-- [gpt-5.1](analyse/gpt-5.1.md) - Snelste, maar slechter dan gpt-5-mini
+- [qwen3.6-27b](analyse/qwen3.6-27b.md) - Hoogste lokale score (93.4%)
+- [gemma-4-31b-vllm](analyse/gemma-4-31b-vllm.md) - vLLM + MTP: 3× sneller (94.7%)
+- [claude-opus-4.8](analyse/claude-opus-4.8.md) - Beste cloud model (92.1%)
+- [gpt-5.4](analyse/gpt-5.4.md) - Tweede beste cloud (89.5%)
+- [gemma-4-31b](analyse/gemma-4-31b.md) - LMStudio versie
+- [gpt-5-mini](analyse/gpt-5-mini.md) - Beste prijs/prestatie cloud
+- [gpt-5.1](analyse/gpt-5.1.md) - Snelste cloud
 - [gpt-4o](analyse/gpt-4o.md) - Vision failures op Q07/Q25
 - [mistral-large-2512](analyse/mistral-large-2512.md) - 8-image context limit
 
@@ -274,8 +278,9 @@ Met 93%+ scoren de beste lokale modellen ruim boven de cesuur voor een 10. Dit o
 
 Voor VWO natuurkunde examenvoorbereiding:
 - **Beste (LMStudio):** qwen3.6-27b of gemma-4-31b (~93%, Q4_K_M)
-- **Beste (vLLM):** gemma-4-31b met MTP (3× sneller, marginaal betere vision)
-- **Cloud alternatief:** gpt-5-mini (84.2%, ~$0.10 per examen)
+- **Beste (vLLM):** gemma-4-31b met MTP (94.7%, 3× sneller)
+- **Beste cloud:** claude-opus-4.8 (92.1%) of gpt-5.4 (89.5%)
+- **Cloud prijs/prestatie:** gpt-5-mini (84.2%, ~$0.10 per examen)
 - **Vermijd:** gpt-4o en ouder (vision failures, lage scores)
 
 *Stroomkosten lokaal: ~€0.21/examen met LMStudio (36 min), ~€0.07/examen met vLLM+MTP (12 min)*
