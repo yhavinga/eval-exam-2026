@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from pathlib import Path
 import numpy as np
+from adjustText import adjust_text
 
 # Tufte style: maximize data-ink ratio, remove chartjunk
 mpl.rcParams['font.family'] = 'sans-serif'
@@ -46,7 +47,7 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model = 'google/gemma-4-31b')
+          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b'))
                OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
         GROUP BY a.model, a.inference_stack
         ORDER BY pct DESC
@@ -171,7 +172,7 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND j.judge_model = 'google/gemma-4-31b'
+          AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b')
           AND a.inference_stack = 'openrouter'
         GROUP BY a.model
     """).fetchall()
@@ -191,24 +192,21 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
 
     fig, ax = plt.subplots(figsize=(6, 4))
 
+    texts = []
     for model, sec, score in rows:
         ax.scatter(sec, score, s=60, color=CLOUD_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
-        name = model.replace('openai/', '').replace('mistralai/', '')
-        # Position labels
-        offset_x = 0.5
-        offset_y = 1.5
-        if 'gpt-5-mini' in model:
-            offset_y = -3
-        elif 'gpt-4o-mini' in model:
-            offset_y = -3
-        ax.text(sec + offset_x, score + offset_y, name, fontsize=8, color='#333333')
+        name = model.replace('openai/', '').replace('mistralai/', '').replace('anthropic/', '')
+        texts.append(ax.text(sec, score, name, fontsize=8, color='#333333'))
 
-    ax.set_xlabel('Avg. seconds per question')
+    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+
+    ax.set_xlabel('Avg. seconds per question (log scale)')
     ax.set_ylabel('Score %')
     ax.set_title('Cloud Models: Speed vs Score', fontsize=11, fontweight='bold', loc='left')
 
-    ax.set_xlim(0, 30)
-    ax.set_ylim(30, 90)
+    ax.set_xscale('log')
+    ax.set_xlim(1, 100)
+    ax.set_ylim(30, 100)
     ax.spines['left'].set_visible(True)
 
     fig.tight_layout()
@@ -246,6 +244,7 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
 
     fig, ax = plt.subplots(figsize=(7, 4))
 
+    texts = []
     for model, stack, sec, score in rows:
         color = VLLM_COLOR if stack == 'vllm-int4' else LOCAL_COLOR
         ax.scatter(sec, score, s=60, color=color, edgecolor='white', linewidth=0.5, zorder=3)
@@ -253,32 +252,22 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
         name = name.replace('-it-claude-opus-distill', '-distill')
         if stack == 'vllm-int4':
             name += ' (vLLM)'
-        # Position labels to minimize collision
-        offset_x = 2
-        offset_y = 1
-        if 'qwen3.6-27b' in model:
-            offset_x = -55
-            offset_y = 1
-        elif 'gemma-4-31b' in name and stack == 'lmstudio':
-            offset_y = -2.5
-        elif 'gemma-4-31b' in name and stack == 'vllm-int4':
-            offset_x = 3
-            offset_y = -2.5
-        elif 'nemotron' in model:
-            offset_x = 3
-        ax.text(sec + offset_x, score + offset_y, name, fontsize=7, color='#333333')
+        texts.append(ax.text(sec, score, name, fontsize=7, color='#333333'))
 
-    ax.set_xlabel('Avg. seconds per question')
+    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+
+    ax.set_xlabel('Avg. seconds per question (log scale)')
     ax.set_ylabel('Score %')
     ax.set_title('Local Models: Speed vs Score',
                  fontsize=11, fontweight='bold', loc='left')
 
-    ax.set_xlim(0, 220)
+    ax.set_xscale('log')
+    ax.set_xlim(1, 500)
     ax.set_ylim(10, 100)
     ax.spines['left'].set_visible(True)
 
     # Note about timing
-    ax.text(110, 15, 'Green = vLLM+MTP optimized\nGray = LMStudio Q4_K_M',
+    ax.text(200, 15, 'Green = vLLM+MTP optimized\nGray = LMStudio Q4_K_M',
             fontsize=7, color='#666666', style='italic')
 
     fig.tight_layout()
@@ -298,7 +287,7 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model = 'google/gemma-4-31b')
+          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b'))
                OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
         GROUP BY a.model, a.inference_stack, a.reasoning_enabled
         HAVING COUNT(*) >= 5
@@ -323,6 +312,7 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
+    texts = []
     for model, stack, no_reasoning, sec, score in rows:
         # Color by stack type
         if stack == 'openrouter':
@@ -332,47 +322,37 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
         else:
             color = LOCAL_COLOR
 
-        # Marker: filled circle for reasoning, hollow circle for cloud (unknown), hollow triangle for explicit no-reasoning
+        # Marker: filled circle for reasoning, hollow circle for cloud (unknown),
+        # hollow triangle for explicit no-reasoning
         if stack == 'openrouter':
-            # Cloud: hollow circle (reasoning unknown)
             ax.scatter(sec, score, s=60, marker='o', facecolors='none',
                        edgecolors=color, linewidth=1.5, zorder=3)
         elif no_reasoning:
-            # Explicit no-reasoning: hollow triangle
             ax.scatter(sec, score, s=60, marker='^', facecolors='none',
                        edgecolors=color, linewidth=1.5, zorder=3)
         else:
-            # With reasoning: filled circle
             ax.scatter(sec, score, s=60, color=color, edgecolor='white',
                        linewidth=0.5, zorder=3)
 
         # Clean model name for label
         name = model.replace('google/', '').replace('qwen/', '')
         name = name.replace('openai/', '').replace('mistralai/', '').replace('nvidia/', '')
-        name = name.replace('-it-claude-opus-distill', '-distill')
+        name = name.replace('anthropic/', '').replace('-it-claude-opus-distill', '-distill')
         if stack == 'vllm-int4':
             name += ' (vLLM)'
         if no_reasoning and stack != 'openrouter':
             name += ' no-R'
 
-        # Default: label to the right and slightly above
-        offset_x = 2
-        offset_y = 1
+        texts.append(ax.text(sec, score, name, fontsize=7, color='#333333'))
 
-        # Only fix collisions
-        if 'gpt-4o' in model and 'mini' not in model:
-            offset_y = 3  # above gpt-4o-mini
-        elif 'mistral-large' in model:
-            offset_y = -3  # below to avoid gemma-3-27b-it
+    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
 
-        ax.text(sec + offset_x, score + offset_y, name, fontsize=7, color='#333333')
-
-    ax.set_xlabel('Avg. seconds per question')
+    ax.set_xlabel('Avg. seconds per question (log scale)')
     ax.set_ylabel('Score %')
     ax.set_title('All Models: Speed vs Score', fontsize=11, fontweight='bold', loc='center')
 
-    # Linear axis limits
-    ax.set_xlim(0, 220)
+    ax.set_xscale('log')
+    ax.set_xlim(1, 500)
     ax.set_ylim(15, 100)
     ax.spines['left'].set_visible(True)
 
