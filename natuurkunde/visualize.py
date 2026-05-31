@@ -119,44 +119,43 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
 
 def plot_cost_effectiveness() -> plt.Figure:
     """Scatter: cost vs accuracy for cloud models."""
-    # Hardcoded pricing data (from OpenRouter)
+    # Actual cost per exam from OpenRouter (May 2026)
+    # (name, $/exam, score%)
     data = [
-        ('gpt-5-mini', 2.00, 84.2),
-        ('gpt-5.1', 10.00, 81.6),
-        ('gpt-4o', 10.00, 57.9),
-        ('gpt-4o-mini', 0.60, 38.2),
-        ('mistral-large', 1.50, 59.2),
+        ('claude-opus-4.8', 1.49, 92.1),
+        ('claude-opus-4.7', 1.47, 93.4),
+        ('claude-opus-4.6', 1.29, 85.5),
+        ('claude-opus-4.5', 1.29, 81.6),
+        ('gpt-5.4', 0.33, 89.5),
+        ('gpt-5.2', 0.53, 89.5),
+        ('gpt-5.3-chat', 0.23, 86.8),
+        ('gpt-5-mini', 0.21, 84.2),
+        ('gpt-5.1', 0.21, 81.6),
+        ('gpt-4o', 0.33, 57.9),
+        ('gpt-4o-mini', 0.54, 38.2),
+        ('mistral-large', 0.15, 59.2),
     ]
 
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(7, 5))
 
+    texts = []
     for name, price, score in data:
         ax.scatter(price, score, s=60, color=CLOUD_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
-        # Position labels to avoid collision
-        offset_x = 0.1
-        offset_y = 1.5
-        if name == 'gpt-5.1':
-            offset_x = 0.2
-            offset_y = -3
-        elif name == 'gpt-4o':
-            offset_y = -3
-        elif name == 'gpt-4o-mini':
-            offset_x = 0.05
-        ax.text(price + offset_x, score + offset_y, name, fontsize=8, color='#333333')
+        texts.append(ax.text(price, score, name, fontsize=8, color='#333333'))
+
+    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
 
     ax.set_xscale('log')
-    ax.set_xlabel('Output price ($/M tokens)')
+    ax.set_xlabel('Cost per exam ($)')
     ax.set_ylabel('Score %')
     ax.set_title('Cloud Model Cost-Effectiveness', fontsize=11, fontweight='bold', loc='left')
 
-    # Minimal grid
-    ax.set_xlim(0.4, 15)
-    ax.set_ylim(30, 90)
-    ax.set_xticks([0.5, 1, 2, 5, 10])
-    ax.set_xticklabels(['$0.50', '$1', '$2', '$5', '$10'])
+    ax.set_xlim(0.1, 2)
+    ax.set_ylim(30, 100)
+    ax.set_xticks([0.1, 0.2, 0.5, 1.0, 2.0])
+    ax.set_xticklabels(['$0.10', '$0.20', '$0.50', '$1.00', '$2.00'])
 
-    # Pareto frontier annotation
-    ax.annotate('← Better value', xy=(1.5, 87), fontsize=8, color='#666666')
+    ax.annotate('← Better value', xy=(0.15, 97), fontsize=8, color='#666666')
 
     ax.spines['left'].set_visible(True)
     fig.tight_layout()
