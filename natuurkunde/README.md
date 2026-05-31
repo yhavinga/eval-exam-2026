@@ -88,27 +88,32 @@ Een vraag waar reasoning models excelleren:
 
 | Rank | Model | Score | Stack | Opmerking |
 |------|-------|-------|-------|-----------|
-| 🥇 | gemma-4-31b | **94.7%** | vLLM int4-MTP | 3× sneller, zie [analyse](analyse/gemma-4-31b-vllm.md) |
-| 🥈 | qwen/qwen3.6-27b | **93.4%** | LMStudio Q4_K_M | Best presterend (LMStudio) |
-| 🥉 | claude-opus-4.8 | **92.1%** | Cloud | Beste cloud model |
-| 4 | google/gemma-4-31b | **89.5%** | LMStudio Q4_K_M | |
-| 4 | openai/gpt-5.4 | **89.5%** | Cloud | |
-| 6 | qwen/qwen3.6-35b-a3b | **88.2%** | LMStudio Q4_K_M | MoE variant |
-| 7 | openai/gpt-5-mini | **84.2%** | Cloud | Beste prijs/prestatie |
-| 8 | google/gemma-4-26b-a4b | **82.9%** | LMStudio Q4_K_M | MoE variant |
-| 9 | openai/gpt-5.1 | **81.6%** | Cloud | Snelste (~5s/vraag) |
-| 10 | mistralai/mistral-large-2512 | 59.2%* | Cloud | *8-image limit |
-| 11 | openai/gpt-4o | **57.9%** | Cloud | Vision failures |
-| 12 | openai/gpt-4o-mini | 38.2% | Cloud | Vision failures |
-| 13 | nvidia/nemotron-3-nano-omni | 20.0% | LMStudio Q4_K_M | |
+| 🥇 | gemma-4-31b | **96.1%** | vLLM int4-MTP | 3× sneller, zie [analyse](analyse/gemma-4-31b-vllm.md) |
+| 🥈 | claude-opus-4.7 | **93.4%** | Cloud | Beste cloud ($1.47/examen) |
+| 🥈 | gemma-4-31b (no-R) | **93.4%** | vLLM int4-MTP | Zonder reasoning |
+| 4 | claude-opus-4.8 | **92.1%** | Cloud | |
+| 5 | google/gemma-4-31b | **91.2%** | LMStudio Q4_K_M | |
+| 6 | qwen/qwen3.6-27b | **90.1%** | LMStudio Q4_K_M | Beste lokaal (LMStudio) |
+| 7 | openai/gpt-5.4 | **89.5%** | Cloud | Beste cloud value ($0.33) |
+| 7 | openai/gpt-5.2 | **89.5%** | Cloud | |
+| 9 | qwen/qwen3.6-35b-a3b | **87.4%** | LMStudio Q4_K_M | MoE variant |
+| 10 | openai/gpt-5.3-chat | **86.8%** | Cloud | |
+| 11 | claude-opus-4.6 | **85.5%** | Cloud | |
+| 12 | openai/gpt-5-mini | **84.2%** | Cloud | |
+| 13 | google/gemma-4-26b-a4b | **82.9%** | LMStudio Q4_K_M | MoE variant |
+| 14 | claude-opus-4.5 | **81.6%** | Cloud | |
+| 14 | openai/gpt-5.1 | **81.6%** | Cloud | Snelste (~5s/vraag) |
+| 16 | mistralai/mistral-large-2512 | 59.2%* | Cloud | *8-image limit |
+| 17 | openai/gpt-4o | **57.9%** | Cloud | Vision failures |
+| 18 | openai/gpt-4o-mini | 38.2% | Cloud | Vision failures |
 
-*Judge: google/gemma-4-31b (LMStudio) of gemma-4-31b (vLLM)*
+*Judge: gemma-4-31b (vLLM of LMStudio)*
 
 ### Cloud Model Kosten vs Prestatie
 
 ![Cost Effectiveness](images/benchmark/02_cost.png)
 
-**claude-opus-4.8** haalt de hoogste cloud score (92.1%). **gpt-5-mini** blijft beste prijs/prestatie ($2/M output tokens, 84.2%).
+**claude-opus-4.7** haalt de hoogste cloud score (93.4%, $1.47/examen). **gpt-5.4** is beste value (89.5%, $0.33/examen). Lokaal (vLLM) kost ~€0.07/examen.
 
 ### Vraag Moeilijkheid
 
@@ -260,10 +265,11 @@ natuurkunde/
 
 Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 
-- [qwen3.6-27b](analyse/qwen3.6-27b.md) - Hoogste lokale score (93.4%)
-- [gemma-4-31b-vllm](analyse/gemma-4-31b-vllm.md) - vLLM + MTP: 3× sneller (94.7%)
-- [claude-opus-4.8](analyse/claude-opus-4.8.md) - Beste cloud model (92.1%)
-- [gpt-5.4](analyse/gpt-5.4.md) - Tweede beste cloud (89.5%)
+- [gemma-4-31b-vllm](analyse/gemma-4-31b-vllm.md) - vLLM + MTP: 3× sneller (96.1%)
+- [claude-opus-4.7](analyse/claude-opus-4.7.md) - Beste cloud (93.4%)
+- [claude-opus-4.8](analyse/claude-opus-4.8.md) - Cloud (92.1%)
+- [qwen3.6-27b](analyse/qwen3.6-27b.md) - Beste lokaal LMStudio (90.1%)
+- [gpt-5.4](analyse/gpt-5.4.md) - Beste cloud value (89.5%)
 - [gemma-4-31b](analyse/gemma-4-31b.md) - LMStudio versie
 - [gpt-5-mini](analyse/gpt-5-mini.md) - Beste prijs/prestatie cloud
 - [gpt-5.1](analyse/gpt-5.1.md) - Snelste cloud
@@ -279,10 +285,10 @@ Gedetailleerde foutanalyses per model in [`analyse/`](analyse/):
 Met 93%+ scoren de beste lokale modellen ruim boven de cesuur voor een 10. Dit op een examen dat niet in hun trainingsdata kan zitten (mei 2026), zonder BINAS, zonder calculator, zero-shot (geen voorbeelden). De resterende fouten zijn edge cases: tekenvragen (LLMs kunnen niet tekenen), subtiele grafiekaflezing, en complexe 3D-vectoranalyse.
 
 Voor VWO natuurkunde examenvoorbereiding:
+- **Beste (vLLM):** gemma-4-31b met MTP (96.1%, €0.07/examen)
 - **Beste (LMStudio):** qwen3.6-27b of gemma-4-31b (~93%, Q4_K_M)
-- **Beste (vLLM):** gemma-4-31b met MTP (94.7%, 3× sneller)
-- **Beste cloud:** claude-opus-4.8 (92.1%) of gpt-5.4 (89.5%)
-- **Cloud prijs/prestatie:** gpt-5-mini (84.2%, ~$0.10 per examen)
+- **Beste cloud:** claude-opus-4.7 (93.4%, $1.47/examen)
+- **Cloud value:** gpt-5.4 (89.5%, $0.33/examen)
 - **Vermijd:** gpt-4o en ouder (vision failures, lage scores)
 
-*Stroomkosten lokaal: ~€0.21/examen met LMStudio (36 min), ~€0.07/examen met vLLM+MTP (12 min)*
+*Lokaal is ~20× goedkoper per scorepunt dan beste cloud.*
