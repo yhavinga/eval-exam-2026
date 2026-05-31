@@ -6,13 +6,13 @@ LLM benchmark op Nederlandse VWO eindexamens - zero data contamination, multimod
 
 | Vak | Status | Beste Model | Score |
 |-----|--------|-------------|-------|
-| [**Natuurkunde**](natuurkunde/README.md) | ✅ Compleet | qwen/qwen3.6-27b | 93.4% |
+| [**Natuurkunde**](natuurkunde/README.md) | ✅ Compleet | gemma-4-31b (vLLM) | 96.1% |
 
 ## Overzicht
 
 Dit project evalueert hoe goed large language models presteren op officiële Nederlandse VWO eindexamens uit 2026. Omdat deze examens niet in de trainingsdata van de modellen kunnen zitten, meten we echte generalisatie - niet memorisatie.
 
-**Belangrijkste bevinding:** Lokale modellen op consumentenhardware (27-31B parameters) presteren beter dan commerciële cloud modellen zoals GPT-4o.
+**Belangrijkste bevinding:** Lokale modellen op consumentenhardware (31B parameters, €0.07/examen) presteren beter dan alle cloud APIs inclusief Claude Opus en GPT-5.
 
 ## Structuur
 
