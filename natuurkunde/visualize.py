@@ -470,20 +470,26 @@ def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
 def plot_question_heatmap(db_path: str) -> plt.Figure:
     """Heatmap: questions × top models showing difficulty patterns."""
     # (model, stack, reasoning_enabled, judge, display_name)
+    # (model, stack, reasoning, judge, display) - reasoning=None means don't filter
     top_models = [
         ('gemma-4-31b', 'vllm-int4', 1, 'gemma-4-31b', 'gemma-4-31b (vLLM)'),
         ('gemma-4-31b', 'vllm-int4', 0, 'gemma-4-31b', 'gemma-4-31b (vLLM, no-R)'),
-        ('qwen/qwen3.6-27b', 'lmstudio', 1, 'google/gemma-4-31b', 'qwen3.6-27b'),
-        ('anthropic/claude-opus-4.8', 'openrouter', 0, 'gemma-4-31b', 'claude-opus-4.8'),
-        ('google/gemma-4-31b', 'lmstudio', 1, 'google/gemma-4-31b', 'gemma-4-31b'),
-        ('openai/gpt-5.4', 'openrouter', 0, 'gemma-4-31b', 'gpt-5.4'),
-        ('qwen/qwen3.6-35b-a3b', 'lmstudio', 1, 'google/gemma-4-31b', 'qwen3.6-35b-a3b'),
-        ('openai/gpt-5-mini', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-5-mini'),
-        ('openai/gpt-5.1', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-5.1'),
-        ('openai/gpt-4o', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-4o'),
-        ('openai/gpt-4o-mini', 'openrouter', 0, 'google/gemma-4-31b', 'gpt-4o-mini'),
-        ('google/gemma-4-26b-a4b', 'lmstudio', 1, 'google/gemma-4-31b', 'gemma-4-26b-a4b'),
-        ('google/gemma-3-27b-it', 'lmstudio', 0, 'google/gemma-4-31b', 'gemma-3-27b-it'),
+        ('anthropic/claude-opus-4.7', 'openrouter', None, 'gemma-4-31b', 'claude-opus-4.7'),
+        ('anthropic/claude-opus-4.8', 'openrouter', None, 'gemma-4-31b', 'claude-opus-4.8'),
+        ('qwen/qwen3.6-27b', 'lmstudio', None, 'google/gemma-4-31b', 'qwen3.6-27b'),
+        ('google/gemma-4-31b', 'lmstudio', None, 'google/gemma-4-31b', 'gemma-4-31b'),
+        ('openai/gpt-5.4', 'openrouter', None, 'gemma-4-31b', 'gpt-5.4'),
+        ('openai/gpt-5.2', 'openrouter', None, 'gemma-4-31b', 'gpt-5.2'),
+        ('anthropic/claude-opus-4.6', 'openrouter', None, 'gemma-4-31b', 'claude-opus-4.6'),
+        ('qwen/qwen3.6-35b-a3b', 'lmstudio', None, 'google/gemma-4-31b', 'qwen3.6-35b-a3b'),
+        ('openai/gpt-5.3-chat', 'openrouter', None, 'gemma-4-31b', 'gpt-5.3-chat'),
+        ('openai/gpt-5-mini', 'openrouter', None, 'google/gemma-4-31b', 'gpt-5-mini'),
+        ('google/gemma-4-26b-a4b', 'lmstudio', None, 'google/gemma-4-31b', 'gemma-4-26b-a4b'),
+        ('anthropic/claude-opus-4.5', 'openrouter', None, 'gemma-4-31b', 'claude-opus-4.5'),
+        ('openai/gpt-5.1', 'openrouter', None, 'google/gemma-4-31b', 'gpt-5.1'),
+        ('openai/gpt-4o', 'openrouter', None, 'google/gemma-4-31b', 'gpt-4o'),
+        ('openai/gpt-4o-mini', 'openrouter', None, 'google/gemma-4-31b', 'gpt-4o-mini'),
+        ('google/gemma-3-27b-it', 'lmstudio', None, 'google/gemma-4-31b', 'gemma-3-27b-it'),
     ]
 
     conn = sqlite3.connect(db_path)
@@ -498,14 +504,25 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
     scores = {}
     totals = {}
     for model, stack, reasoning, judge, display in top_models:
-        rows = conn.execute("""
-            SELECT q.question_number, j.score, j.max_score
-            FROM questions q
-            JOIN answers a ON a.question_id = q.id
-            JOIN judgements j ON j.answer_id = a.id
-            WHERE a.model = ? AND a.inference_stack = ? AND a.reasoning_enabled = ? AND j.judge_model = ?
-            ORDER BY q.question_number
-        """, (model, stack, reasoning, judge)).fetchall()
+        # reasoning=None means don't filter on reasoning_enabled
+        if reasoning is None:
+            rows = conn.execute("""
+                SELECT q.question_number, j.score, j.max_score
+                FROM questions q
+                JOIN answers a ON a.question_id = q.id
+                JOIN judgements j ON j.answer_id = a.id
+                WHERE a.model = ? AND a.inference_stack = ? AND j.judge_model = ?
+                ORDER BY q.question_number
+            """, (model, stack, judge)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT q.question_number, j.score, j.max_score
+                FROM questions q
+                JOIN answers a ON a.question_id = q.id
+                JOIN judgements j ON j.answer_id = a.id
+                WHERE a.model = ? AND a.inference_stack = ? AND a.reasoning_enabled = ? AND j.judge_model = ?
+                ORDER BY q.question_number
+            """, (model, stack, reasoning, judge)).fetchall()
         scores[display] = {r[0]: (r[1], r[2]) for r in rows}
         total_score = sum(r[1] for r in rows if r[1] is not None)
         total_max = sum(r[2] for r in rows if r[2] is not None)
