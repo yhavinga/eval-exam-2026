@@ -199,15 +199,20 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
         name = model.replace('openai/', '').replace('mistralai/', '').replace('anthropic/', '')
         texts.append(ax.text(sec, score, name, fontsize=8, color='#333333'))
 
-    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+    # Set scale and limits BEFORE adjust_text to avoid corruption
+    ax.set_xscale('log')
+    ax.set_xlim(1, 100)
+    ax.set_ylim(30, 100)
+
+    adjust_text(texts,
+                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+                force_static=(2, 2),
+                force_explode=(2, 2),
+                expand=(2, 2))
 
     ax.set_xlabel('Avg. seconds per question (log scale)')
     ax.set_ylabel('Score %')
     ax.set_title('Cloud Models: Speed vs Score', fontsize=11, fontweight='bold', loc='left')
-
-    ax.set_xscale('log')
-    ax.set_xlim(1, 100)
-    ax.set_ylim(30, 100)
     ax.spines['left'].set_visible(True)
 
     fig.tight_layout()
@@ -217,54 +222,69 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
 def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
     """Scatter: inference time vs accuracy for local models (LMStudio + vLLM)."""
     conn = sqlite3.connect(db_path)
-    # Get scores for LMStudio
+    # Get scores grouped by reasoning mode
     score_rows = conn.execute("""
-        SELECT a.model, a.inference_stack,
-               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+               ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
+               COUNT(*) as cnt
         FROM answers a
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
           AND ((a.inference_stack = 'lmstudio' AND j.judge_model = 'google/gemma-4-31b')
                OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
-        GROUP BY a.model, a.inference_stack
+        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+        HAVING COUNT(*) >= 5
     """).fetchall()
-    scores = {(r[0], r[1]): r[2] for r in score_rows}
+    scores = {(r[0], r[1], r[2]): r[3] for r in score_rows}
 
-    # Get timing (only successful answers)
+    # Get timing (only successful answers), grouped by reasoning mode
     timing_rows = conn.execute("""
-        SELECT a.model, a.inference_stack, AVG(a.duration_ms)/1000.0 as avg_sec
+        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+               AVG(a.duration_ms)/1000.0 as avg_sec
         FROM answers a
         WHERE a.inference_stack IN ('lmstudio', 'vllm-int4') AND a.error IS NULL
-        GROUP BY a.model, a.inference_stack
+        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
     """).fetchall()
-    timing = {(r[0], r[1]): r[2] for r in timing_rows}
+    timing = {(r[0], r[1], r[2]): r[3] for r in timing_rows}
 
-    rows = [(m, s, timing.get((m, s), 0), scores.get((m, s), 0))
-            for (m, s) in scores.keys()]
+    rows = [(m, s, nr, timing.get((m, s, nr), 0), scores.get((m, s, nr), 0))
+            for (m, s, nr) in scores.keys() if timing.get((m, s, nr), 0) > 0]
     conn.close()
 
     fig, ax = plt.subplots(figsize=(7, 4))
 
     texts = []
-    for model, stack, sec, score in rows:
+    for model, stack, no_reasoning, sec, score in rows:
         color = VLLM_COLOR if stack == 'vllm-int4' else LOCAL_COLOR
-        ax.scatter(sec, score, s=60, color=color, edgecolor='white', linewidth=0.5, zorder=3)
+        # Hollow triangle for no-reasoning
+        if no_reasoning:
+            ax.scatter(sec, score, s=60, marker='^', facecolors='none',
+                       edgecolors=color, linewidth=1.5, zorder=3)
+        else:
+            ax.scatter(sec, score, s=60, color=color, edgecolor='white', linewidth=0.5, zorder=3)
         name = model.replace('google/', '').replace('qwen/', '').replace('nvidia/', '')
         name = name.replace('-it-claude-opus-distill', '-distill')
         if stack == 'vllm-int4':
             name += ' (vLLM)'
+        if no_reasoning:
+            name += ' no-R'
         texts.append(ax.text(sec, score, name, fontsize=7, color='#333333'))
 
-    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+    # Set scale and limits BEFORE adjust_text to avoid corruption
+    ax.set_xscale('log')
+    ax.set_xlim(1, 500)
+    ax.set_ylim(10, 100)
+
+    adjust_text(texts,
+                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+                force_static=(2, 2),
+                force_explode=(2, 2),
+                expand=(2, 2))
 
     ax.set_xlabel('Avg. seconds per question (log scale)')
     ax.set_ylabel('Score %')
     ax.set_title('Local Models: Speed vs Score',
                  fontsize=11, fontweight='bold', loc='left')
-
-    ax.set_xscale('log')
-    ax.set_xlim(1, 500)
-    ax.set_ylim(10, 100)
     ax.spines['left'].set_visible(True)
 
     # Note about timing
@@ -346,15 +366,20 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
 
         texts.append(ax.text(sec, score, name, fontsize=7, color='#333333'))
 
-    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+    # Set scale and limits BEFORE adjust_text to avoid corruption
+    ax.set_xscale('log')
+    ax.set_xlim(1, 500)
+    ax.set_ylim(15, 100)
+
+    adjust_text(texts,
+                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+                force_static=(2, 2),
+                force_explode=(2, 2),
+                expand=(2, 2))
 
     ax.set_xlabel('Avg. seconds per question (log scale)')
     ax.set_ylabel('Score %')
     ax.set_title('All Models: Speed vs Score', fontsize=11, fontweight='bold', loc='center')
-
-    ax.set_xscale('log')
-    ax.set_xlim(1, 500)
-    ax.set_ylim(15, 100)
     ax.spines['left'].set_visible(True)
 
     # Legend with marker shapes
