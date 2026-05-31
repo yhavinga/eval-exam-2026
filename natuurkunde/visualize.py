@@ -136,26 +136,28 @@ def plot_cost_effectiveness() -> plt.Figure:
         ('mistral-large', 0.15, 59.2),
     ]
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(8, 6))
 
+    # Plot points
     texts = []
     for name, price, score in data:
         ax.scatter(price, score, s=60, color=CLOUD_COLOR, edgecolor='white', linewidth=0.5, zorder=3)
-        texts.append(ax.text(price, score, name, fontsize=8, color='#333333'))
+        texts.append(ax.text(price, score, name, fontsize=7, color='#333333'))
 
-    adjust_text(texts, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+    adjust_text(texts,
+                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+                force_static=(2, 2),
+                force_explode=(2, 2),
+                expand=(2, 2))
 
-    ax.set_xscale('log')
     ax.set_xlabel('Cost per exam ($)')
     ax.set_ylabel('Score %')
     ax.set_title('Cloud Model Cost-Effectiveness', fontsize=11, fontweight='bold', loc='left')
 
-    ax.set_xlim(0.1, 2)
+    ax.set_xlim(0, 1.7)
     ax.set_ylim(30, 100)
-    ax.set_xticks([0.1, 0.2, 0.5, 1.0, 2.0])
-    ax.set_xticklabels(['$0.10', '$0.20', '$0.50', '$1.00', '$2.00'])
 
-    ax.annotate('← Better value', xy=(0.15, 97), fontsize=8, color='#666666')
+    ax.annotate('← Better value', xy=(0.05, 97), fontsize=8, color='#666666')
 
     ax.spines['left'].set_visible(True)
     fig.tight_layout()
