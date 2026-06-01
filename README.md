@@ -12,7 +12,7 @@ LLM benchmark op Nederlandse VWO eindexamens - zero data contamination, multimod
 
 Dit project evalueert hoe goed large language models presteren op officiële Nederlandse VWO eindexamens uit 2026. Omdat deze examens niet in de trainingsdata van de modellen kunnen zitten, meten we echte generalisatie - niet memorisatie.
 
-**Belangrijkste bevinding:** Lokale modellen op consumentenhardware (31B parameters, €0.07/examen) presteren beter dan alle cloud APIs inclusief Claude Opus en GPT-5.
+**Belangrijkste bevinding:** Lokale modellen (96.1%) presteren op dit benchmark vergelijkbaar met of iets beter dan de beste cloud modellen (93.4%), maar voor ongeveer 1/20 van de kosten.
 
 ## Structuur
 

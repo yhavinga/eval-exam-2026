@@ -59,14 +59,12 @@ Of dit "intelligentie" is, is filosofisch. Maar het is onmiskenbaar *indrukwekke
 
 ### Voorbeeld: Q17 (morphodidius)
 
-Een vraag waar reasoning models excelleren:
+Een vraag waar sommige recente Cloud modellen problemen mee hebben:
 
 | Model | Score |
 |-------|-------|
 | qwen/qwen3.6-27b | **5/5** |
 | google/gemma-4-31b | **5/5** |
-| claude-opus-4.8 | **5/5** |
-| gpt-5.4 | **5/5** |
 | openai/gpt-5.1 | 3/5 |
 
 ![Q17 Opgave](images/2026-05/vw-1023-a-26-1-o/17_morphodidius_opgave.png)
@@ -175,17 +173,19 @@ Alle modellen gebruiken de door de fabrikant aanbevolen temperature:
 
 **Let op:** Dit is contra-intuïtief. Traditioneel advies voor analytisch werk is lage temperature. Maar reasoning models met chain-of-thought (zoals Qwen en Gemma-4) raken in een herhalende loop bij greedy decoding - ze blijven dezelfde analyse herhalen zonder te convergeren. Qwen's officiële documentatie waarschuwt expliciet dat *"greedy decoding is a trap"* voor thinking models.
 
+**Reasoning:** Cloud modellen met model defaults (geen parameter ingesteld). Lokaal (vLLM) default aan; enkel gemma-4 no-R variant expliciet uit met --no-reasoning.
+
 ### Hardware & Quantisatie
 
-Lokale modellen gedraaid via LMStudio op een dual-GPU consumer systeem:
+Lokale modellen gedraaid via LMStudio en vLLM op een dual-GPU consumer systeem:
 
-| Component | Specificatie |
-|-----------|--------------|
-| GPU's | 2× RTX 3090 (24GB elk) |
+| Component | Specificatie                               |
+|-----------|--------------------------------------------|
+| GPU's | 2× RTX 3090 (24GB elk)                     |
 | Quantisatie | **Q4_K_M** voor alle open weights modellen |
 | CUDA | 12.6 |
-| LMStudio | 0.4.14 |
-| Verbruik | ~500W tijdens inferentie |
+| LMStudio | 0.4.14                                     |
+| Verbruik | ~500W tijdens inferentie                   |
 
 **MTP (Multi-Token Prediction)** met LMStudio/llama.cpp werkte niet - verkeerde antwoorden door kapotte chat templates of oneindige reasoning loops. Echter, met vLLM en speculative decoding (`--speculative-config gemma-4-31B-it-assistant, n=4`) werkt MTP wél correct voor Gemma-4.
 
