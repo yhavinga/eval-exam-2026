@@ -397,7 +397,17 @@ def cmd_judge(args):
 
     reasoning_effort = args.reasoning_effort
 
-    # Get answers that haven't been judged yet (or all if --force)
+    # Auto-detect judge stack from base_url
+    judge_stack = "openrouter" if "openrouter" in args.judge_base_url else args.judge_stack
+
+    # Compute next run_number for this judge config
+    run_number_row = conn.execute("""
+        SELECT COALESCE(MAX(run_number), 0) + 1 as next_num FROM judgements
+        WHERE judge_model = ? AND judge_stack = ? AND temperature = ? AND reasoning_effort = ?
+    """, (args.judge_model, judge_stack, args.temperature, reasoning_effort)).fetchone()
+    judge_run_number = run_number_row["next_num"]
+
+    # Get answers that haven't been judged yet in this run_number (or all if --force)
     model_filter = "AND r.model = ?" if args.answer_model else ""
     params = (args.answer_model,) if args.answer_model else ()
 
@@ -415,17 +425,21 @@ def cmd_judge(args):
             FROM answers a
             JOIN questions q ON a.question_id = q.id
             JOIN runs r ON a.run_id = r.id
-            WHERE a.id NOT IN (SELECT answer_id FROM judgements WHERE judge_model = ?)
+            WHERE a.id NOT IN (
+                SELECT answer_id FROM judgements
+                WHERE judge_model = ? AND judge_stack = ? AND temperature = ?
+                  AND reasoning_effort = ? AND run_number = ?
+            )
             {model_filter}
-        """, (args.judge_model,) + params).fetchall()
+        """, (args.judge_model, judge_stack, args.temperature, reasoning_effort, judge_run_number) + params).fetchall()
 
-    print(f"Judging {len(answers)} answers with {args.judge_model}...")
+    print(f"Judging {len(answers)} answers with {args.judge_model} (judge run {judge_run_number})...")
 
     for a in answers:
         print(f"  {a['exam_code']} Q{a['question_number']} (answer {a['id']}): judging...", end=" ", flush=True)
         try:
             judgement_id = judge_answer(conn, a["id"], args.judge_model, args.judge_base_url,
-                                        args.judge_stack, args.temperature, reasoning_effort)
+                                        judge_stack, args.temperature, reasoning_effort, judge_run_number)
             j = conn.execute("SELECT score, max_score, duration_ms FROM judgements WHERE id = ?", (judgement_id,)).fetchone()
             print(f"{j['score']}/{j['max_score']} ({j['duration_ms']}ms)")
         except ValueError as e:
@@ -442,6 +456,7 @@ def judge_answer(
     judge_stack: str,
     temperature: float,
     reasoning_effort: str,
+    run_number: int,
 ) -> int:
     """Judge an answer using correctievoorschrift, returns judgement id."""
     answer = conn.execute("SELECT * FROM answers WHERE id = ?", (answer_id,)).fetchone()
@@ -454,9 +469,6 @@ def judge_answer(
     question_images = json.loads(question["image_paths"])
 
     client = OpenAI(base_url=judge_base_url, api_key=get_api_key(judge_base_url), timeout=3600.0)
-
-    # Auto-detect judge stack from base_url
-    actual_stack = "openrouter" if "openrouter" in judge_base_url else judge_stack
 
     content = []
     for img_path in question_images:
@@ -523,11 +535,11 @@ MOTIVATIE: [uitleg waarom deze score]
 
     cur = conn.execute("""
         INSERT INTO judgements (answer_id, created_at, judge_model, judge_stack, temperature,
-                                reasoning_effort, score, max_score, motivation, duration_ms, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                reasoning_effort, run_number, score, max_score, motivation, duration_ms, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
-    """, (answer_id, now_iso(), judge_model, actual_stack, temperature,
-          reasoning_effort, score, max_score, motivation, duration_ms, error))
+    """, (answer_id, now_iso(), judge_model, judge_stack, temperature,
+          reasoning_effort, run_number, score, max_score, motivation, duration_ms, error))
     result = cur.fetchone()[0]
     conn.commit()
     return result

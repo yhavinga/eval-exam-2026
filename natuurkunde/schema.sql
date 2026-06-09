@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS judgements (
     judge_stack TEXT NOT NULL,
     temperature REAL NOT NULL,
     reasoning_effort TEXT NOT NULL,
+    run_number INTEGER NOT NULL,
     score REAL,
     max_score REAL,
     motivation TEXT,
