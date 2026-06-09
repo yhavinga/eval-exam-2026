@@ -41,15 +41,16 @@ def plot_model_ranking(db_path: str) -> plt.Figure:
     # Group by model AND stack to show vLLM separately
     # Use best available judge for each stack
     rows = conn.execute("""
-        SELECT a.model,
+        SELECT r.model,
                ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
-               a.inference_stack
+               r.inference_stack
         FROM answers a
+        JOIN runs r ON a.run_id = r.id
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b'))
-               OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
-        GROUP BY a.model, a.inference_stack
+          AND ((r.inference_stack != 'vllm-int4' AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b'))
+               OR (r.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
+        GROUP BY r.model, r.inference_stack
         ORDER BY pct DESC
     """).fetchall()
     conn.close()
@@ -169,22 +170,24 @@ def plot_speed_accuracy_cloud(db_path: str) -> plt.Figure:
     conn = sqlite3.connect(db_path)
     # Get scores (all answers including errors)
     score_rows = conn.execute("""
-        SELECT a.model, ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
+        SELECT r.model, ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct
         FROM answers a
+        JOIN runs r ON a.run_id = r.id
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
           AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b')
-          AND a.inference_stack = 'openrouter'
-        GROUP BY a.model
+          AND r.inference_stack = 'openrouter'
+        GROUP BY r.model
     """).fetchall()
     scores = {r[0]: r[1] for r in score_rows}
 
     # Get timing (only successful answers)
     timing_rows = conn.execute("""
-        SELECT a.model, AVG(a.duration_ms)/1000.0 as avg_sec
+        SELECT r.model, AVG(a.duration_ms)/1000.0 as avg_sec
         FROM answers a
-        WHERE a.inference_stack = 'openrouter' AND a.error IS NULL
-        GROUP BY a.model
+        JOIN runs r ON a.run_id = r.id
+        WHERE r.inference_stack = 'openrouter' AND a.error IS NULL
+        GROUP BY r.model
     """).fetchall()
     timing = {r[0]: r[1] for r in timing_rows}
 
@@ -224,26 +227,28 @@ def plot_speed_accuracy_local(db_path: str) -> plt.Figure:
     conn = sqlite3.connect(db_path)
     # Get scores grouped by reasoning mode
     score_rows = conn.execute("""
-        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+        SELECT r.model, r.inference_stack, (r.reasoning_effort = 'off') as no_reasoning,
                ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
                COUNT(*) as cnt
         FROM answers a
+        JOIN runs r ON a.run_id = r.id
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND ((a.inference_stack = 'lmstudio' AND j.judge_model = 'google/gemma-4-31b')
-               OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
-        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+          AND ((r.inference_stack = 'lmstudio' AND j.judge_model = 'google/gemma-4-31b')
+               OR (r.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
+        GROUP BY r.model, r.inference_stack, r.reasoning_effort
         HAVING COUNT(*) >= 5
     """).fetchall()
     scores = {(r[0], r[1], r[2]): r[3] for r in score_rows}
 
     # Get timing (only successful answers), grouped by reasoning mode
     timing_rows = conn.execute("""
-        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+        SELECT r.model, r.inference_stack, (r.reasoning_effort = 'off') as no_reasoning,
                AVG(a.duration_ms)/1000.0 as avg_sec
         FROM answers a
-        WHERE a.inference_stack IN ('lmstudio', 'vllm-int4') AND a.error IS NULL
-        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+        JOIN runs r ON a.run_id = r.id
+        WHERE r.inference_stack IN ('lmstudio', 'vllm-int4') AND a.error IS NULL
+        GROUP BY r.model, r.inference_stack, r.reasoning_effort
     """).fetchall()
     timing = {(r[0], r[1], r[2]): r[3] for r in timing_rows}
 
@@ -302,27 +307,29 @@ def plot_speed_accuracy_all(db_path: str) -> plt.Figure:
     # Get scores with appropriate judge per stack, grouped by reasoning mode
     # Only include groups with at least 5 answers (filters out outliers like 2 empty reasoning questions)
     score_rows = conn.execute("""
-        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+        SELECT r.model, r.inference_stack, (r.reasoning_effort = 'off') as no_reasoning,
                ROUND(100.0 * SUM(j.score) / SUM(j.max_score), 1) as pct,
                COUNT(*) as cnt
         FROM answers a
+        JOIN runs r ON a.run_id = r.id
         JOIN judgements j ON j.answer_id = a.id
         WHERE j.score IS NOT NULL
-          AND ((a.inference_stack != 'vllm-int4' AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b'))
-               OR (a.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
-        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+          AND ((r.inference_stack != 'vllm-int4' AND j.judge_model IN ('google/gemma-4-31b', 'gemma-4-31b'))
+               OR (r.inference_stack = 'vllm-int4' AND j.judge_model = 'gemma-4-31b'))
+        GROUP BY r.model, r.inference_stack, r.reasoning_effort
         HAVING COUNT(*) >= 5
     """).fetchall()
     scores = {(r[0], r[1], r[2]): r[3] for r in score_rows}
 
     # Get timing (only successful answers), grouped by reasoning mode
     timing_rows = conn.execute("""
-        SELECT a.model, a.inference_stack, NOT a.reasoning_enabled as no_reasoning,
+        SELECT r.model, r.inference_stack, (r.reasoning_effort = 'off') as no_reasoning,
                AVG(a.duration_ms)/1000.0 as avg_sec,
                COUNT(*) as cnt
         FROM answers a
+        JOIN runs r ON a.run_id = r.id
         WHERE a.error IS NULL
-        GROUP BY a.model, a.inference_stack, a.reasoning_enabled
+        GROUP BY r.model, r.inference_stack, r.reasoning_effort
         HAVING COUNT(*) >= 5
     """).fetchall()
     timing = {(r[0], r[1], r[2]): r[3] for r in timing_rows}
@@ -414,10 +421,12 @@ def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
             v.duration_ms/1000.0 as vllm_sec
         FROM questions q
         JOIN answers lm ON lm.question_id = q.id
-            AND lm.inference_stack = 'lmstudio'
-            AND lm.model = 'google/gemma-4-31b'
+        JOIN runs lr ON lm.run_id = lr.id
+            AND lr.inference_stack = 'lmstudio'
+            AND lr.model = 'google/gemma-4-31b'
         JOIN answers v ON v.question_id = q.id
-            AND v.inference_stack = 'vllm-int4'
+        JOIN runs vr ON v.run_id = vr.id
+            AND vr.inference_stack = 'vllm-int4'
         ORDER BY q.question_number
     """).fetchall()
     conn.close()
@@ -475,11 +484,11 @@ def plot_stack_speed_comparison(db_path: str) -> plt.Figure:
 
 def plot_question_heatmap(db_path: str) -> plt.Figure:
     """Heatmap: questions × top models showing difficulty patterns."""
-    # (model, stack, reasoning_enabled, judge, display_name)
-    # (model, stack, reasoning, judge, display) - reasoning=None means don't filter
+    # (model, stack, reasoning_effort, judge, display_name)
+    # reasoning_effort=None means don't filter on reasoning_effort
     top_models = [
-        ('gemma-4-31b', 'vllm-int4', 1, 'gemma-4-31b', 'gemma-4-31b (vLLM)'),
-        ('gemma-4-31b', 'vllm-int4', 0, 'gemma-4-31b', 'gemma-4-31b (vLLM, no-R)'),
+        ('gemma-4-31b', 'vllm-int4', 'on', 'gemma-4-31b', 'gemma-4-31b (vLLM)'),
+        ('gemma-4-31b', 'vllm-int4', 'off', 'gemma-4-31b', 'gemma-4-31b (vLLM, no-R)'),
         ('anthropic/claude-opus-4.7', 'openrouter', None, 'gemma-4-31b', 'claude-opus-4.7'),
         ('anthropic/claude-opus-4.8', 'openrouter', None, 'gemma-4-31b', 'claude-opus-4.8'),
         ('qwen/qwen3.6-27b', 'lmstudio', None, 'google/gemma-4-31b', 'qwen3.6-27b'),
@@ -509,15 +518,16 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
     # Build score matrix and compute totals for sorting
     scores = {}
     totals = {}
-    for model, stack, reasoning, judge, display in top_models:
-        # reasoning=None means don't filter on reasoning_enabled
-        if reasoning is None:
+    for model, stack, reasoning_effort, judge, display in top_models:
+        # reasoning_effort=None means don't filter on reasoning_effort
+        if reasoning_effort is None:
             rows = conn.execute("""
                 SELECT q.question_number, j.score, j.max_score
                 FROM questions q
                 JOIN answers a ON a.question_id = q.id
+                JOIN runs r ON a.run_id = r.id
                 JOIN judgements j ON j.answer_id = a.id
-                WHERE a.model = ? AND a.inference_stack = ? AND j.judge_model = ?
+                WHERE r.model = ? AND r.inference_stack = ? AND j.judge_model = ?
                 ORDER BY q.question_number
             """, (model, stack, judge)).fetchall()
         else:
@@ -525,10 +535,11 @@ def plot_question_heatmap(db_path: str) -> plt.Figure:
                 SELECT q.question_number, j.score, j.max_score
                 FROM questions q
                 JOIN answers a ON a.question_id = q.id
+                JOIN runs r ON a.run_id = r.id
                 JOIN judgements j ON j.answer_id = a.id
-                WHERE a.model = ? AND a.inference_stack = ? AND a.reasoning_enabled = ? AND j.judge_model = ?
+                WHERE r.model = ? AND r.inference_stack = ? AND r.reasoning_effort = ? AND j.judge_model = ?
                 ORDER BY q.question_number
-            """, (model, stack, reasoning, judge)).fetchall()
+            """, (model, stack, reasoning_effort, judge)).fetchall()
         scores[display] = {r[0]: (r[1], r[2]) for r in rows}
         total_score = sum(r[1] for r in rows if r[1] is not None)
         total_max = sum(r[2] for r in rows if r[2] is not None)
