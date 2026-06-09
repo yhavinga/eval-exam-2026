@@ -340,7 +340,7 @@ def cmd_solve(args):
                 "presence_penalty": args.presence_penalty
             }
             if "openrouter" in args.base_url:
-                or_effort = "none" if reasoning_effort == "off" else reasoning_effort
+                or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
                 extra_body["reasoning"] = {"effort": or_effort}
             elif "8030" in args.base_url or "vllm" in args.base_url.lower():
                 extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
@@ -487,7 +487,7 @@ MOTIVATIE: [uitleg waarom deze score]
     # Build extra_body
     extra_body = {}
     if "openrouter" in judge_base_url:
-        or_effort = "none" if reasoning_effort == "off" else reasoning_effort
+        or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
         extra_body["reasoning"] = {"effort": or_effort}
     elif "8030" in judge_base_url or "vllm" in judge_base_url.lower():
         extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
