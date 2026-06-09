@@ -229,16 +229,7 @@ def cmd_solve(args):
     stack = "openrouter" if "openrouter" in args.base_url else args.stack
 
     reasoning_effort = args.reasoning_effort
-
-    # Compute next run_number for this config
-    run_number_row = conn.execute("""
-        SELECT COALESCE(MAX(run_number), 0) + 1 as next_num FROM runs
-        WHERE model = ? AND inference_stack = ? AND base_url = ?
-          AND temperature = ? AND top_p = ? AND top_k = ?
-          AND presence_penalty = ? AND max_tokens = ? AND reasoning_effort = ?
-    """, (log_model, stack, args.base_url, args.temperature, args.top_p,
-          args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort)).fetchone()
-    run_number = run_number_row["next_num"]
+    run_number = args.solve_run_number
 
     # Check for existing complete run with same config (unless --force)
     if not args.force:
@@ -396,16 +387,10 @@ def cmd_judge(args):
     conn = init_db()
 
     reasoning_effort = args.reasoning_effort
+    judge_run_number = args.judge_number
 
     # Auto-detect judge stack from base_url
     judge_stack = "openrouter" if "openrouter" in args.judge_base_url else args.judge_stack
-
-    # Compute next run_number for this judge config
-    run_number_row = conn.execute("""
-        SELECT COALESCE(MAX(run_number), 0) + 1 as next_num FROM judgements
-        WHERE judge_model = ? AND judge_stack = ? AND temperature = ? AND reasoning_effort = ?
-    """, (args.judge_model, judge_stack, args.temperature, reasoning_effort)).fetchone()
-    judge_run_number = run_number_row["next_num"]
 
     # Get answers that haven't been judged yet in this run_number (or all if --force)
     model_filter = "AND r.model = ?" if args.answer_model else ""
@@ -429,6 +414,7 @@ def cmd_judge(args):
                 SELECT answer_id FROM judgements
                 WHERE judge_model = ? AND judge_stack = ? AND temperature = ?
                   AND reasoning_effort = ? AND run_number = ?
+                  AND score IS NOT NULL
             )
             {model_filter}
         """, (args.judge_model, judge_stack, args.temperature, reasoning_effort, judge_run_number) + params).fetchall()
@@ -533,6 +519,13 @@ MOTIVATIE: [uitleg waarom deze score]
         error = str(e)
     duration_ms = int((time.perf_counter() - start) * 1000)
 
+    # Delete any previous error judgement for this exact config+answer so we don't accumulate duplicates
+    conn.execute("""
+        DELETE FROM judgements
+        WHERE answer_id = ? AND judge_model = ? AND judge_stack = ? AND temperature = ?
+          AND reasoning_effort = ? AND run_number = ? AND score IS NULL
+    """, (answer_id, judge_model, judge_stack, temperature, reasoning_effort, run_number))
+
     cur = conn.execute("""
         INSERT INTO judgements (answer_id, created_at, judge_model, judge_stack, temperature,
                                 reasoning_effort, run_number, score, max_score, motivation, duration_ms, error)
@@ -605,7 +598,8 @@ def main():
     p_solve.add_argument("--top-k", type=int, default=20, help="Top-k sampling")
     p_solve.add_argument("--presence-penalty", type=float, default=1.5, help="Presence penalty (shortens thinking)")
     p_solve.add_argument("--max-tokens", type=int, default=65536, help="Max tokens for response")
-    p_solve.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "on", "high", "xhigh"')
+    p_solve.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "low", "medium", "high", "xhigh"')
+    p_solve.add_argument("--solve-run-number", type=int, required=True, help="Solve run number (explicit, for parallel runs)")
     p_solve.add_argument("--notes", help="Optional notes for this run")
     p_solve.add_argument("--force", action="store_true", help="Create a new run even if one exists")
     p_solve.set_defaults(func=cmd_solve)
@@ -616,7 +610,8 @@ def main():
     p_judge.add_argument("--judge-base-url", default="http://192.168.2.97:1234/v1", help="Judge API base URL")
     p_judge.add_argument("--judge-stack", default="lmstudio", help="Judge inference stack")
     p_judge.add_argument("--temperature", type=float, default=1.0, help="Temperature for judge")
-    p_judge.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "on", "high", "xhigh"')
+    p_judge.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "low", "medium", "high", "xhigh"')
+    p_judge.add_argument("--judge-number", type=int, required=True, help="Judge run number (explicit, for repeated judging)")
     p_judge.add_argument("--force", action="store_true", help="Re-judge already judged answers")
     p_judge.add_argument("--answer-model", help="Only judge answers from this model")
     p_judge.set_defaults(func=cmd_judge)
