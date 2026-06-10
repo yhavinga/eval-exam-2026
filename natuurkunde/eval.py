@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import asyncio
 import base64
 import json
 import os
@@ -231,40 +232,45 @@ def cmd_solve(args):
     reasoning_effort = args.reasoning_effort
     run_number = args.solve_run_number
 
-    # Check for existing complete run with same config (unless --force)
-    if not args.force:
-        existing_run = conn.execute("""
-            SELECT r.id, COUNT(a.id) as cnt FROM runs r
-            LEFT JOIN answers a ON a.run_id = r.id
-            WHERE r.model = ? AND r.inference_stack = ? AND r.base_url = ?
-              AND r.temperature = ? AND r.top_p = ? AND r.top_k = ?
-              AND r.presence_penalty = ? AND r.max_tokens = ? AND r.reasoning_effort = ?
-            GROUP BY r.id
-        """, (log_model, stack, args.base_url, args.temperature, args.top_p,
-              args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort)).fetchall()
+    # Check for existing run with same config
+    question_count = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
+    existing_run = conn.execute("""
+        SELECT r.id, r.run_name,
+               COUNT(a.id) as total,
+               COUNT(CASE WHEN a.response IS NOT NULL AND a.error IS NULL THEN 1 END) as ok
+        FROM runs r
+        LEFT JOIN answers a ON a.run_id = r.id
+        WHERE r.model = ? AND r.inference_stack = ? AND r.base_url = ?
+          AND r.temperature = ? AND r.top_p = ? AND r.top_k = ?
+          AND r.presence_penalty = ? AND r.max_tokens = ? AND r.reasoning_effort = ?
+          AND r.run_number = ?
+        GROUP BY r.id
+    """, (log_model, stack, args.base_url, args.temperature, args.top_p,
+          args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number)).fetchone()
 
-        for er in existing_run:
-            question_count = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
-            if er["cnt"] >= question_count:
-                print(f"Run {er['id']} already complete ({er['cnt']} answers). Use --force to re-run.")
-                conn.close()
-                return
-
-    # Create the run
-    created_at = now_iso()
-    cur = conn.execute("""
-        INSERT INTO runs (created_at, model, inference_stack, base_url, temperature, top_p, top_k,
-                          presence_penalty, max_tokens, reasoning_effort, run_number, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id, run_name
-    """, (created_at, log_model, stack, args.base_url, args.temperature, args.top_p,
-          args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number, args.notes))
-    row = cur.fetchone()
-    run_id = row["id"]
-    run_name = row["run_name"]
-    conn.commit()
-
-    print(f"Created run {run_id}: {run_name}")
+    if existing_run and not args.force:
+        if existing_run["ok"] >= question_count:
+            print(f"Run {existing_run['id']} already complete ({existing_run['ok']}/{question_count} ok). Use --force to re-run.")
+            conn.close()
+            return
+        # Resume incomplete run
+        run_id = existing_run["id"]
+        run_name = existing_run["run_name"]
+        print(f"Resuming run {run_id}: {run_name} ({existing_run['ok']}/{question_count} ok)")
+    else:
+        created_at = now_iso()
+        cur = conn.execute("""
+            INSERT INTO runs (created_at, model, inference_stack, base_url, temperature, top_p, top_k,
+                              presence_penalty, max_tokens, reasoning_effort, run_number, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id, run_name
+        """, (created_at, log_model, stack, args.base_url, args.temperature, args.top_p,
+              args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number, args.notes))
+        row = cur.fetchone()
+        run_id = row["id"]
+        run_name = row["run_name"]
+        conn.commit()
+        print(f"Created run {run_id}: {run_name}")
 
     # Group questions by (exam_code, question_name) = topic
     questions = conn.execute("""
@@ -291,19 +297,23 @@ def cmd_solve(args):
         messages = []
 
         for q in topic_questions:
-            # Check if already answered in this run
+            # Check if already successfully answered in this run
             existing = conn.execute(
                 "SELECT id, response FROM answers WHERE run_id = ? AND question_id = ?",
                 (run_id, q["id"])
             ).fetchone()
 
-            if existing:
+            if existing and existing["response"] is not None:
                 print(f"  Q{q['question_number']}: already answered, adding to context")
                 messages.append({"role": "user", "content": [
                     {"type": "text", "text": f"[Vraag {q['question_number']} was al beantwoord]"}
                 ]})
-                messages.append({"role": "assistant", "content": existing["response"] or "[geen antwoord]"})
+                messages.append({"role": "assistant", "content": existing["response"]})
                 continue
+
+            if existing:
+                conn.execute("DELETE FROM answers WHERE id = ?", (existing["id"],))
+                conn.commit()
 
             print(f"  Q{q['question_number']}: solving...", end=" ", flush=True)
 
@@ -333,6 +343,11 @@ def cmd_solve(args):
             if "openrouter" in args.base_url:
                 or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
                 extra_body["reasoning"] = {"effort": or_effort}
+                if args.provider:
+                    extra_body["provider"] = {"order": [args.provider], "allow_fallbacks": False}
+                if args.quantization:
+                    extra_body.setdefault("provider", {})["quantizations"] = [args.quantization]
+                    extra_body["provider"]["allow_fallbacks"] = False
             elif "8030" in args.base_url or "vllm" in args.base_url.lower():
                 extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
                 extra_body["skip_special_tokens"] = False
@@ -382,160 +397,40 @@ def cmd_solve(args):
     conn.close()
 
 
+def parse_run_numbers(s: str) -> list[int]:
+    """Parse '1,2,3' or '1..7' or '1..3,5,7' into sorted list of ints."""
+    result = set()
+    for part in s.split(","):
+        part = part.strip()
+        if ".." in part:
+            start, end = part.split("..", 1)
+            result.update(range(int(start), int(end) + 1))
+        else:
+            result.add(int(part))
+    return sorted(result)
+
+
 def cmd_judge(args):
-    """Judge all answers."""
-    conn = init_db()
+    """Judge answers asynchronously across a grid of solve runs × judge counts."""
+    import judge_async
 
-    reasoning_effort = args.reasoning_effort
-    judge_run_number = args.judge_number
-
-    # Auto-detect judge stack from base_url
     judge_stack = "openrouter" if "openrouter" in args.judge_base_url else args.judge_stack
+    solve_run_numbers = parse_run_numbers(args.solve_runs)
 
-    # Get answers that haven't been judged yet in this run_number (or all if --force)
-    model_filter = "AND r.model = ?" if args.answer_model else ""
-    params = (args.answer_model,) if args.answer_model else ()
-
-    if args.force:
-        answers = conn.execute(f"""
-            SELECT a.*, q.exam_code, q.question_number, r.model
-            FROM answers a
-            JOIN questions q ON a.question_id = q.id
-            JOIN runs r ON a.run_id = r.id
-            WHERE 1=1 {model_filter}
-        """, params).fetchall()
-    else:
-        answers = conn.execute(f"""
-            SELECT a.*, q.exam_code, q.question_number, r.model
-            FROM answers a
-            JOIN questions q ON a.question_id = q.id
-            JOIN runs r ON a.run_id = r.id
-            WHERE a.id NOT IN (
-                SELECT answer_id FROM judgements
-                WHERE judge_model = ? AND judge_stack = ? AND temperature = ?
-                  AND reasoning_effort = ? AND run_number = ?
-                  AND score IS NOT NULL
-            )
-            {model_filter}
-        """, (args.judge_model, judge_stack, args.temperature, reasoning_effort, judge_run_number) + params).fetchall()
-
-    print(f"Judging {len(answers)} answers with {args.judge_model} (judge run {judge_run_number})...")
-
-    for a in answers:
-        print(f"  {a['exam_code']} Q{a['question_number']} (answer {a['id']}): judging...", end=" ", flush=True)
-        try:
-            judgement_id = judge_answer(conn, a["id"], args.judge_model, args.judge_base_url,
-                                        judge_stack, args.temperature, reasoning_effort, judge_run_number)
-            j = conn.execute("SELECT score, max_score, duration_ms FROM judgements WHERE id = ?", (judgement_id,)).fetchone()
-            print(f"{j['score']}/{j['max_score']} ({j['duration_ms']}ms)")
-        except ValueError as e:
-            print(f"SKIP: {e}")
-
-    conn.close()
-
-
-def judge_answer(
-    conn: sqlite3.Connection,
-    answer_id: int,
-    judge_model: str,
-    judge_base_url: str,
-    judge_stack: str,
-    temperature: float,
-    reasoning_effort: str,
-    run_number: int,
-) -> int:
-    """Judge an answer using correctievoorschrift, returns judgement id."""
-    answer = conn.execute("SELECT * FROM answers WHERE id = ?", (answer_id,)).fetchone()
-    question = conn.execute("SELECT * FROM questions WHERE id = ?", (answer["question_id"],)).fetchone()
-
-    cv_paths = json.loads(question["correctievoorschrift_paths"]) if question["correctievoorschrift_paths"] else []
-    if not cv_paths:
-        raise ValueError(f"No correctievoorschrift for question {question['id']}")
-
-    question_images = json.loads(question["image_paths"])
-
-    client = OpenAI(base_url=judge_base_url, api_key=get_api_key(judge_base_url), timeout=3600.0)
-
-    content = []
-    for img_path in question_images:
-        img_data = load_image_as_base64(IMAGES_BASE / img_path)
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}})
-
-    for cv_path in cv_paths:
-        img_data = load_image_as_base64(IMAGES_BASE / cv_path)
-        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}})
-
-    content.append({"type": "text", "text": f"""Je bent een examinator voor VWO natuurkunde.
-
-OPGAVE: Zie de eerste afbeelding(en).
-
-CORRECTIEVOORSCHRIFT: Zie de laatste afbeelding(en). Het maximum aantal punten staat in het correctievoorschrift.
-
-ANTWOORD VAN LEERLING:
-{answer["response"]}
-
-OPDRACHT:
-Beoordeel het antwoord volgens het correctievoorschrift.
-
-Geef je beoordeling in dit formaat (motivatie EERST, dan scores):
-MOTIVATIE: [uitleg waarom deze score]
-[SCORE=getal]
-[MAX=getal]"""})
-
-    # Build extra_body
-    extra_body = {}
-    if "openrouter" in judge_base_url:
-        or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
-        extra_body["reasoning"] = {"effort": or_effort}
-    elif "8030" in judge_base_url or "vllm" in judge_base_url.lower():
-        extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
-        extra_body["skip_special_tokens"] = False
-
-    start = time.perf_counter()
-    try:
-        resp = client.chat.completions.create(
-            model=judge_model,
-            messages=[{"role": "user", "content": content}],
-            max_tokens=16384,
-            temperature=temperature,
-            extra_body=extra_body if extra_body else None
-        )
-        motivation = resp.choices[0].message.content
-        score = None
-        max_score = None
-        if motivation:
-            # Parse SCORE and MAX in various formats: [SCORE=3], SCORE=3, SCORE: 3
-            score_match = re.search(r'\[?SCORE[=:]\s*(\d+(?:\.\d+)?)\]?', motivation)
-            max_match = re.search(r'\[?MAX[=:]\s*(\d+(?:\.\d+)?)\]?', motivation)
-            if score_match:
-                score = float(score_match.group(1))
-            if max_match:
-                max_score = float(max_match.group(1))
-        error = None
-    except Exception as e:
-        motivation = None
-        score = None
-        max_score = None
-        error = str(e)
-    duration_ms = int((time.perf_counter() - start) * 1000)
-
-    # Delete any previous error judgement for this exact config+answer so we don't accumulate duplicates
-    conn.execute("""
-        DELETE FROM judgements
-        WHERE answer_id = ? AND judge_model = ? AND judge_stack = ? AND temperature = ?
-          AND reasoning_effort = ? AND run_number = ? AND score IS NULL
-    """, (answer_id, judge_model, judge_stack, temperature, reasoning_effort, run_number))
-
-    cur = conn.execute("""
-        INSERT INTO judgements (answer_id, created_at, judge_model, judge_stack, temperature,
-                                reasoning_effort, run_number, score, max_score, motivation, duration_ms, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-    """, (answer_id, now_iso(), judge_model, judge_stack, temperature,
-          reasoning_effort, run_number, score, max_score, motivation, duration_ms, error))
-    result = cur.fetchone()[0]
-    conn.commit()
-    return result
+    asyncio.run(judge_async.run(
+        judge_model=args.judge_model,
+        judge_base_url=args.judge_base_url,
+        judge_stack=judge_stack,
+        temperature=args.temperature,
+        reasoning_effort=args.reasoning_effort,
+        answer_model=args.answer_model,
+        solve_run_numbers=solve_run_numbers,
+        judge_count=args.judge_count,
+        concurrency=args.concurrency,
+        force=args.force,
+        provider=getattr(args, 'provider', None),
+        quantization=getattr(args, 'quantization', None),
+    ))
 
 
 def cmd_runs(args):
@@ -600,6 +495,8 @@ def main():
     p_solve.add_argument("--max-tokens", type=int, default=65536, help="Max tokens for response")
     p_solve.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "low", "medium", "high", "xhigh"')
     p_solve.add_argument("--solve-run-number", type=int, required=True, help="Solve run number (explicit, for parallel runs)")
+    p_solve.add_argument("--provider", help="OpenRouter provider slug (e.g. novita)")
+    p_solve.add_argument("--quantization", help="OpenRouter quantization filter (e.g. bf16, fp8, int8)")
     p_solve.add_argument("--notes", help="Optional notes for this run")
     p_solve.add_argument("--force", action="store_true", help="Create a new run even if one exists")
     p_solve.set_defaults(func=cmd_solve)
@@ -611,9 +508,13 @@ def main():
     p_judge.add_argument("--judge-stack", default="lmstudio", help="Judge inference stack")
     p_judge.add_argument("--temperature", type=float, default=1.0, help="Temperature for judge")
     p_judge.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "low", "medium", "high", "xhigh"')
-    p_judge.add_argument("--judge-number", type=int, required=True, help="Judge run number (explicit, for repeated judging)")
+    p_judge.add_argument("--answer-model", required=True, help="Answer model to judge (e.g. google/gemma-4-31b-it)")
+    p_judge.add_argument("--solve-runs", required=True, help="Solve run numbers to judge (e.g. 1,2,3 or 1..7)")
+    p_judge.add_argument("--judge-count", type=int, required=True, help="Number of times to judge each answer (creates judge run_numbers 1..N)")
+    p_judge.add_argument("--concurrency", type=int, default=20, help="Max concurrent API calls")
+    p_judge.add_argument("--provider", help="OpenRouter provider slug (e.g. novita)")
+    p_judge.add_argument("--quantization", help="OpenRouter quantization filter (e.g. bf16, fp8, int8)")
     p_judge.add_argument("--force", action="store_true", help="Re-judge already judged answers")
-    p_judge.add_argument("--answer-model", help="Only judge answers from this model")
     p_judge.set_defaults(func=cmd_judge)
 
     # runs command
