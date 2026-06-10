@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 from openai import OpenAI
 
 load_dotenv()
@@ -32,10 +34,16 @@ IMAGES_BASE = Path("images")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 LMSTUDIO_BASE_URL = "http://192.168.2.97:1234/v1"
+GENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1"
 
 
 def get_api_key(base_url: str) -> str:
     """Get API key based on provider."""
+    if base_url == "genai":
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise ValueError("GEMINI_API_KEY not set in .env")
+        return key
     if "openrouter" in base_url:
         key = os.getenv("OPENROUTER_API_KEY")
         if not key:
@@ -221,13 +229,20 @@ def cmd_sync(args):
 def cmd_solve(args):
     """Generate answers for all questions, grouped by topic."""
     conn = init_db()
-    client = OpenAI(base_url=args.base_url, api_key=get_api_key(args.base_url), timeout=3600.0)
 
     # log_model: name for database, defaults to API model name if not specified
     log_model = args.log_model or args.model
 
-    # Auto-detect inference stack from base_url
-    stack = "openrouter" if "openrouter" in args.base_url else args.stack
+    # Stack detection and client creation
+    is_genai = args.stack == "genai"
+    if is_genai:
+        genai_client = genai.Client(api_key=get_api_key("genai"))
+        stack = "genai"
+        base_url = GENAI_BASE_URL
+    else:
+        stack = "openrouter" if "openrouter" in args.base_url else args.stack
+        client = OpenAI(base_url=args.base_url, api_key=get_api_key(args.base_url), timeout=3600.0)
+        base_url = args.base_url
 
     reasoning_effort = args.reasoning_effort
     run_number = args.solve_run_number
@@ -245,7 +260,7 @@ def cmd_solve(args):
           AND r.presence_penalty = ? AND r.max_tokens = ? AND r.reasoning_effort = ?
           AND r.run_number = ?
         GROUP BY r.id
-    """, (log_model, stack, args.base_url, args.temperature, args.top_p,
+    """, (log_model, stack, base_url, args.temperature, args.top_p,
           args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number)).fetchone()
 
     if existing_run and not args.force:
@@ -264,7 +279,7 @@ def cmd_solve(args):
                               presence_penalty, max_tokens, reasoning_effort, run_number, notes)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id, run_name
-        """, (created_at, log_model, stack, args.base_url, args.temperature, args.top_p,
+        """, (created_at, log_model, stack, base_url, args.temperature, args.top_p,
               args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number, args.notes))
         row = cur.fetchone()
         run_id = row["id"]
@@ -294,7 +309,10 @@ def cmd_solve(args):
         print(f"\n=== Topic: {exam_code} / {topic_name} ({len(topic_questions)} questions) ===")
 
         # Fresh conversation for each topic
-        messages = []
+        if is_genai:
+            contents = []
+        else:
+            messages = []
 
         for q in topic_questions:
             # Check if already successfully answered in this run
@@ -305,10 +323,18 @@ def cmd_solve(args):
 
             if existing and existing["response"] is not None:
                 print(f"  Q{q['question_number']}: already answered, adding to context")
-                messages.append({"role": "user", "content": [
-                    {"type": "text", "text": f"[Vraag {q['question_number']} was al beantwoord]"}
-                ]})
-                messages.append({"role": "assistant", "content": existing["response"]})
+                if is_genai:
+                    contents.append(types.Content(role="user", parts=[
+                        types.Part.from_text(text=f"[Vraag {q['question_number']} was al beantwoord]")
+                    ]))
+                    contents.append(types.Content(role="model", parts=[
+                        types.Part.from_text(text=existing["response"])
+                    ]))
+                else:
+                    messages.append({"role": "user", "content": [
+                        {"type": "text", "text": f"[Vraag {q['question_number']} was al beantwoord]"}
+                    ]})
+                    messages.append({"role": "assistant", "content": existing["response"]})
                 continue
 
             if existing:
@@ -317,68 +343,119 @@ def cmd_solve(args):
 
             print(f"  Q{q['question_number']}: solving...", end=" ", flush=True)
 
-            # Build user message with images for this question
             image_paths = json.loads(q["image_paths"])
             prompt = q["prompt"]
-
-            content = []
-            for img_path in image_paths:
-                img_data = load_image_as_base64(IMAGES_BASE / img_path)
-                content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}})
-            content.append({"type": "text", "text": f"Vraag {q['question_number']}: {prompt}"})
-
-            messages.append({"role": "user", "content": content})
-
-            # Call API with full conversation context (retry once on parse errors)
             start = time.perf_counter()
             response = None
             reasoning = None
             error = None
 
-            # Build extra_body
-            extra_body = {
-                "top_k": args.top_k,
-                "presence_penalty": args.presence_penalty
-            }
-            if "openrouter" in args.base_url:
-                or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
-                extra_body["reasoning"] = {"effort": or_effort}
-                if args.provider:
-                    extra_body["provider"] = {"order": [args.provider], "allow_fallbacks": False}
-                if args.quantization:
-                    extra_body.setdefault("provider", {})["quantizations"] = [args.quantization]
-                    extra_body["provider"]["allow_fallbacks"] = False
-            elif "8030" in args.base_url or "vllm" in args.base_url.lower():
-                extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
-                extra_body["skip_special_tokens"] = False
+            if is_genai:
+                parts = []
+                for img_path in image_paths:
+                    parts.append(types.Part.from_bytes(
+                        data=(IMAGES_BASE / img_path).read_bytes(), mime_type="image/png"
+                    ))
+                parts.append(types.Part.from_text(text=f"Vraag {q['question_number']}: {prompt}"))
+                contents.append(types.Content(role="user", parts=parts))
 
-            for attempt in range(2):
-                try:
-                    resp = client.chat.completions.create(
-                        model=args.model,
-                        messages=messages,
-                        max_tokens=args.max_tokens,
-                        temperature=args.temperature,
-                        top_p=args.top_p,
-                        extra_body=extra_body
+                genai_levels = {"off": "minimal", "low": "low", "medium": "medium",
+                                "high": "high", "on": "high", "xhigh": "high"}
+                level = genai_levels.get(reasoning_effort, "high")
+                if "gemma" in args.model.lower():
+                    # Gemma only supports minimal (off) vs default (on)
+                    thinking_cfg = types.ThinkingConfig(
+                        thinking_level="minimal" if reasoning_effort == "off" else None,
+                        include_thoughts=reasoning_effort != "off",
                     )
-                    msg = resp.choices[0].message
-                    response = msg.content
-                    # Extract reasoning if present (vLLM: 'reasoning', LMStudio: 'reasoning_content')
-                    reasoning = getattr(msg, 'reasoning', None) or getattr(msg, 'reasoning_content', None)
-                    error = None
-                    break
-                except Exception as e:
-                    error = str(e)
-                    if attempt == 0 and "parse" in error.lower():
-                        print("RETRY...", end=" ", flush=True)
-                        continue
-                    response = None
-                    reasoning = None
-            duration_ms = int((time.perf_counter() - start) * 1000)
+                else:
+                    thinking_cfg = types.ThinkingConfig(
+                        thinking_level=level, include_thoughts=True,
+                    )
+                config = types.GenerateContentConfig(
+                    thinking_config=thinking_cfg,
+                    max_output_tokens=args.max_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                )
 
-            # Add assistant response to conversation for context
-            messages.append({"role": "assistant", "content": response or "[error]"})
+                for attempt in range(5):
+                    try:
+                        resp = genai_client.models.generate_content(
+                            model=args.model, contents=contents, config=config
+                        )
+                        response = resp.text
+                        thinking_parts = []
+                        if resp.candidates and resp.candidates[0].content:
+                            for part in resp.candidates[0].content.parts:
+                                if getattr(part, 'thought', False) and part.text:
+                                    thinking_parts.append(part.text)
+                        reasoning = "\n".join(thinking_parts) if thinking_parts else None
+                        error = None
+                        break
+                    except Exception as e:
+                        error = str(e)
+                        if "429" in error or "RESOURCE_EXHAUSTED" in error:
+                            wait = 5 * (attempt + 1)
+                            print(f"RATE LIMITED, waiting {wait}s...", end=" ", flush=True)
+                            time.sleep(wait)
+                            continue
+                        break
+
+                duration_ms = int((time.perf_counter() - start) * 1000)
+                contents.append(types.Content(role="model", parts=[
+                    types.Part.from_text(text=response or "[error]")
+                ]))
+            else:
+                content = []
+                for img_path in image_paths:
+                    img_data = load_image_as_base64(IMAGES_BASE / img_path)
+                    content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}})
+                content.append({"type": "text", "text": f"Vraag {q['question_number']}: {prompt}"})
+                messages.append({"role": "user", "content": content})
+
+                extra_body = {
+                    "top_k": args.top_k,
+                    "presence_penalty": args.presence_penalty
+                }
+                if "openrouter" in base_url:
+                    or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
+                    extra_body["reasoning"] = {"effort": or_effort}
+                    if args.provider:
+                        extra_body["provider"] = {"order": [args.provider], "allow_fallbacks": False}
+                    if args.quantization:
+                        extra_body.setdefault("provider", {})["quantizations"] = [args.quantization]
+                        extra_body["provider"]["allow_fallbacks"] = False
+                elif "8030" in base_url or "vllm" in base_url.lower():
+                    extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
+                    extra_body["skip_special_tokens"] = False
+
+                for attempt in range(2):
+                    try:
+                        resp = client.chat.completions.create(
+                            model=args.model,
+                            messages=messages,
+                            max_tokens=args.max_tokens,
+                            temperature=args.temperature,
+                            top_p=args.top_p,
+                            extra_body=extra_body
+                        )
+                        msg = resp.choices[0].message
+                        response = msg.content
+                        reasoning = getattr(msg, 'reasoning', None) or getattr(msg, 'reasoning_content', None)
+                        error = None
+                        break
+                    except Exception as e:
+                        error = str(e)
+                        if attempt == 0 and "parse" in error.lower():
+                            print("RETRY...", end=" ", flush=True)
+                            continue
+                        response = None
+                        reasoning = None
+
+                duration_ms = int((time.perf_counter() - start) * 1000)
+                messages.append({"role": "assistant", "content": response or "[error]"})
 
             # Save to DB
             cur = conn.execute("""
@@ -392,7 +469,8 @@ def cmd_solve(args):
             if error:
                 print(f"ERROR: {error}")
             else:
-                print(f"done ({duration_ms}ms, ctx={len(messages)} msgs)")
+                ctx_len = len(contents) if is_genai else len(messages)
+                print(f"done ({duration_ms}ms, ctx={ctx_len} msgs)")
 
     conn.close()
 

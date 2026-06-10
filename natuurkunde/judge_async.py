@@ -5,6 +5,8 @@ import json
 import re
 import time
 
+from google import genai
+from google.genai import types
 from openai import AsyncOpenAI
 
 from eval import IMAGES_BASE, get_api_key, init_db, load_image_as_base64, now_iso
@@ -55,38 +57,55 @@ def _parse_score(motivation: str | None) -> tuple[float | None, float | None]:
 
 
 async def _judge_one(
-    client: AsyncOpenAI,
+    client: AsyncOpenAI | None,
     semaphore: asyncio.Semaphore,
     db_lock: asyncio.Lock,
     conn,
     answer_id: int,
-    content: list,
+    content,
     judge_model: str,
     judge_stack: str,
     temperature: float,
     reasoning_effort: str,
     run_number: int,
-    extra_body: dict,
+    extra_body: dict | None,
     progress: dict,
+    genai_client=None,
+    genai_config=None,
 ):
     async with semaphore:
         start = time.perf_counter()
-        try:
-            resp = await client.chat.completions.create(
-                model=judge_model,
-                messages=[{"role": "user", "content": content}],
-                max_tokens=16384,
-                temperature=temperature,
-                extra_body=extra_body or None,
-            )
-            motivation = resp.choices[0].message.content
-            score, max_score = _parse_score(motivation)
-            error = None
-        except Exception as e:
-            motivation = None
-            score = None
-            max_score = None
-            error = str(e)
+        motivation = None
+        score = None
+        max_score = None
+        error = None
+        for attempt in range(5):
+            try:
+                if genai_client:
+                    resp = await genai_client.aio.models.generate_content(
+                        model=judge_model, contents=content, config=genai_config
+                    )
+                    motivation = resp.text
+                else:
+                    resp = await client.chat.completions.create(
+                        model=judge_model,
+                        messages=[{"role": "user", "content": content}],
+                        max_tokens=16384,
+                        temperature=temperature,
+                        extra_body=extra_body or None,
+                    )
+                    motivation = resp.choices[0].message.content
+                score, max_score = _parse_score(motivation)
+                error = None
+                break
+            except Exception as e:
+                error = str(e)
+                if "429" in error or "RESOURCE_EXHAUSTED" in error:
+                    wait = 5 * (attempt + 1)
+                    await asyncio.sleep(wait)
+                    continue
+                motivation = None
+                break
         duration_ms = int((time.perf_counter() - start) * 1000)
 
     async with db_lock:
@@ -139,12 +158,37 @@ async def run(
     quantization: str | None = None,
 ):
     conn = init_db()
-    client = AsyncOpenAI(
-        base_url=judge_base_url,
-        api_key=get_api_key(judge_base_url),
-        timeout=3600.0,
-    )
-    extra_body = _build_extra_body(judge_base_url, reasoning_effort, provider, quantization)
+    is_genai = judge_stack == "genai"
+    if is_genai:
+        genai_client = genai.Client(api_key=get_api_key("genai"))
+        genai_levels = {"off": "minimal", "low": "low", "medium": "medium",
+                        "high": "high", "on": "high", "xhigh": "high"}
+        level = genai_levels.get(reasoning_effort, "high")
+        if "gemma" in judge_model.lower():
+            thinking_cfg = types.ThinkingConfig(
+                thinking_level="minimal" if reasoning_effort == "off" else None,
+                include_thoughts=reasoning_effort != "off",
+            )
+        else:
+            thinking_cfg = types.ThinkingConfig(
+                thinking_level=level, include_thoughts=True,
+            )
+        genai_config = types.GenerateContentConfig(
+            thinking_config=thinking_cfg,
+            max_output_tokens=16384,
+            temperature=temperature,
+        )
+        client = None
+        extra_body = None
+    else:
+        client = AsyncOpenAI(
+            base_url=judge_base_url,
+            api_key=get_api_key(judge_base_url),
+            timeout=3600.0,
+        )
+        extra_body = _build_extra_body(judge_base_url, reasoning_effort, provider, quantization)
+        genai_client = None
+        genai_config = None
 
     # Validate solve runs exist for this model + reasoning effort
     placeholders = ",".join("?" * len(solve_run_numbers))
@@ -175,17 +219,23 @@ async def run(
         conn.close()
         return
 
-    # Pre-cache images as data URLs (deduplicated by path)
+    # Pre-cache images (raw bytes for genai, data URIs for OpenAI)
     image_cache = {}
     for a in answers:
         for path in json.loads(a["image_paths"]):
             if path not in image_cache:
-                image_cache[path] = f"data:image/png;base64,{load_image_as_base64(IMAGES_BASE / path)}"
+                if is_genai:
+                    image_cache[path] = (IMAGES_BASE / path).read_bytes()
+                else:
+                    image_cache[path] = f"data:image/png;base64,{load_image_as_base64(IMAGES_BASE / path)}"
         cv_raw = a["correctievoorschrift_paths"]
         if cv_raw:
             for path in json.loads(cv_raw):
                 if path not in image_cache:
-                    image_cache[path] = f"data:image/png;base64,{load_image_as_base64(IMAGES_BASE / path)}"
+                    if is_genai:
+                        image_cache[path] = (IMAGES_BASE / path).read_bytes()
+                    else:
+                        image_cache[path] = f"data:image/png;base64,{load_image_as_base64(IMAGES_BASE / path)}"
 
     # Pre-build message content per answer (shared across judge_numbers)
     answer_content = {}
@@ -197,13 +247,22 @@ async def run(
             skipped_no_cv += 1
             continue
 
-        content = []
-        for path in json.loads(a["image_paths"]):
-            content.append({"type": "image_url", "image_url": {"url": image_cache[path]}})
-        for path in cv_paths:
-            content.append({"type": "image_url", "image_url": {"url": image_cache[path]}})
-        content.append({"type": "text", "text": JUDGE_PROMPT_TEMPLATE.format(response=a["response"])})
-        answer_content[a["id"]] = content
+        if is_genai:
+            parts = []
+            for path in json.loads(a["image_paths"]):
+                parts.append(types.Part.from_bytes(data=image_cache[path], mime_type="image/png"))
+            for path in cv_paths:
+                parts.append(types.Part.from_bytes(data=image_cache[path], mime_type="image/png"))
+            parts.append(types.Part.from_text(text=JUDGE_PROMPT_TEMPLATE.format(response=a["response"])))
+            answer_content[a["id"]] = [types.Content(role="user", parts=parts)]
+        else:
+            content = []
+            for path in json.loads(a["image_paths"]):
+                content.append({"type": "image_url", "image_url": {"url": image_cache[path]}})
+            for path in cv_paths:
+                content.append({"type": "image_url", "image_url": {"url": image_cache[path]}})
+            content.append({"type": "text", "text": JUDGE_PROMPT_TEMPLATE.format(response=a["response"])})
+            answer_content[a["id"]] = content
 
     if skipped_no_cv:
         print(f"Skipped {skipped_no_cv} answers without correctievoorschrift.")
@@ -241,6 +300,7 @@ async def run(
             answer_id, answer_content[answer_id],
             judge_model, judge_stack, temperature, reasoning_effort, judge_num,
             extra_body, progress,
+            genai_client=genai_client, genai_config=genai_config,
         )
         for answer_id, judge_num in tasks
     ]
