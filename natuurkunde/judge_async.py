@@ -107,12 +107,20 @@ async def _judge_one(
         progress["done"] += 1
         if error:
             progress["errors"] += 1
+        elif score is None:
+            progress["no_score"] += 1
         total = progress["total"]
         done = progress["done"]
         errors = progress["errors"]
+        no_score = progress["no_score"]
         pct = int(100 * done / total) if total else 0
-        error_str = f", {errors} errors" if errors else ""
-        print(f"\r  {done}/{total} scored ({pct}%){error_str}    ", end="", flush=True)
+        parts = []
+        if errors:
+            parts.append(f"{errors} errors")
+        if no_score:
+            parts.append(f"{no_score} unparsed")
+        extra = f", {', '.join(parts)}" if parts else ""
+        print(f"\r  {done}/{total} scored ({pct}%){extra}    ", end="", flush=True)
 
 
 async def run(
@@ -123,6 +131,7 @@ async def run(
     reasoning_effort: str,
     answer_model: str,
     solve_run_numbers: list[int],
+    solve_reasoning: str,
     judge_count: int,
     concurrency: int,
     force: bool,
@@ -137,29 +146,29 @@ async def run(
     )
     extra_body = _build_extra_body(judge_base_url, reasoning_effort, provider, quantization)
 
-    # Validate solve runs exist for this model
+    # Validate solve runs exist for this model + reasoning effort
     placeholders = ",".join("?" * len(solve_run_numbers))
     existing_runs = conn.execute(
-        f"SELECT run_number FROM runs WHERE model = ? AND run_number IN ({placeholders})",
-        [answer_model] + solve_run_numbers
+        f"SELECT run_number FROM runs WHERE model = ? AND reasoning_effort = ? AND run_number IN ({placeholders})",
+        [answer_model, solve_reasoning] + solve_run_numbers
     ).fetchall()
     existing_nums = {r["run_number"] for r in existing_runs}
     missing = set(solve_run_numbers) - existing_nums
     if missing:
-        print(f"Error: no runs found for model '{answer_model}' with run_numbers: {sorted(missing)}")
+        print(f"Error: no runs found for model '{answer_model}' (reasoning={solve_reasoning}) with run_numbers: {sorted(missing)}")
         conn.close()
         return
 
-    # Get successful answers for specified model + run_numbers
+    # Get successful answers for specified model + reasoning + run_numbers
     answers = conn.execute(f"""
         SELECT a.id, a.response,
                q.image_paths, q.correctievoorschrift_paths, q.exam_code, q.question_number
         FROM answers a
         JOIN questions q ON a.question_id = q.id
         JOIN runs r ON a.run_id = r.id
-        WHERE r.model = ? AND r.run_number IN ({placeholders})
+        WHERE r.model = ? AND r.reasoning_effort = ? AND r.run_number IN ({placeholders})
           AND a.response IS NOT NULL AND a.error IS NULL
-    """, [answer_model] + solve_run_numbers).fetchall()
+    """, [answer_model, solve_reasoning] + solve_run_numbers).fetchall()
 
     if not answers:
         print("No successful answers found for the specified solve runs.")
@@ -222,7 +231,7 @@ async def run(
 
     print(f"Judging {len(tasks)} answer×run pairs with {judge_model} (concurrency={concurrency})...")
 
-    progress = {"done": 0, "errors": 0, "total": len(tasks)}
+    progress = {"done": 0, "errors": 0, "no_score": 0, "total": len(tasks)}
     semaphore = asyncio.Semaphore(concurrency)
     db_lock = asyncio.Lock()
 
@@ -240,10 +249,13 @@ async def run(
     print()
 
     errors = progress["errors"]
-    done = progress["done"]
+    no_score = progress["no_score"]
+    ok = progress["done"] - errors - no_score
+    parts = [f"{ok} scored"]
+    if no_score:
+        parts.append(f"{no_score} unparsed")
     if errors:
-        print(f"Done: {done - errors} scored, {errors} errors.")
-    else:
-        print(f"Done: {done} scored.")
+        parts.append(f"{errors} errors")
+    print(f"Done: {', '.join(parts)}.")
 
     conn.close()

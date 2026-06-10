@@ -417,6 +417,8 @@ def cmd_judge(args):
     judge_stack = "openrouter" if "openrouter" in args.judge_base_url else args.judge_stack
     solve_run_numbers = parse_run_numbers(args.solve_runs)
 
+    solve_reasoning = args.solve_reasoning or args.reasoning_effort
+
     asyncio.run(judge_async.run(
         judge_model=args.judge_model,
         judge_base_url=args.judge_base_url,
@@ -425,6 +427,7 @@ def cmd_judge(args):
         reasoning_effort=args.reasoning_effort,
         answer_model=args.answer_model,
         solve_run_numbers=solve_run_numbers,
+        solve_reasoning=solve_reasoning,
         judge_count=args.judge_count,
         concurrency=args.concurrency,
         force=args.force,
@@ -510,6 +513,7 @@ def main():
     p_judge.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "low", "medium", "high", "xhigh"')
     p_judge.add_argument("--answer-model", required=True, help="Answer model to judge (e.g. google/gemma-4-31b-it)")
     p_judge.add_argument("--solve-runs", required=True, help="Solve run numbers to judge (e.g. 1,2,3 or 1..7)")
+    p_judge.add_argument("--solve-reasoning", help="Reasoning effort of solve runs to filter on (defaults to --reasoning-effort)")
     p_judge.add_argument("--judge-count", type=int, required=True, help="Number of times to judge each answer (creates judge run_numbers 1..N)")
     p_judge.add_argument("--concurrency", type=int, default=20, help="Max concurrent API calls")
     p_judge.add_argument("--provider", help="OpenRouter provider slug (e.g. novita)")
