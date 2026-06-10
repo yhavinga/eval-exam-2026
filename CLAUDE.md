@@ -102,3 +102,53 @@ FROM answers a JOIN judgements j ON j.answer_id = a.id
 WHERE j.score IS NOT NULL
 GROUP BY a.model, j.judge_model;
 ```
+
+## OpenRouter Provider Routing
+
+### List providers for a model
+
+To see all available providers, quantizations, and limits for a model, first find the canonical slug then query its endpoints:
+
+```bash
+# Step 1: Find canonical slug (check links.details field)
+curl -s https://openrouter.ai/api/v1/models | python -c "
+import json, sys
+for m in json.load(sys.stdin)['data']:
+    if m['id'] == 'google/gemma-4-31b-it':
+        print(m['links']['details'])
+"
+# Output: /api/v1/models/google/gemma-4-31b-it-20260402/endpoints
+
+# Step 2: List endpoints
+curl -s https://openrouter.ai/api/v1/models/google/gemma-4-31b-it-20260402/endpoints | python -c "
+import json, sys
+for ep in json.load(sys.stdin)['data']['endpoints']:
+    tag = ep.get('tag', '?')
+    quant = ep.get('quantization', '?')
+    name = ep.get('provider_name', '?')
+    ctx = ep.get('context_length', '?')
+    max_out = ep.get('max_completion_tokens', '?')
+    print(f'  {tag:<30} quant={quant:<8} ctx={str(ctx):<8} max_out={str(max_out):<8} {name}')
+"
+```
+
+### Provider routing in API requests
+
+Use the `provider` field in `extra_body`:
+
+```json
+{
+  "provider": {
+    "order": ["novita/bf16"],
+    "allow_fallbacks": false,
+    "quantizations": ["bf16"]
+  }
+}
+```
+
+**Key learnings:**
+- Provider slugs in `order` use the full tag format: `"novita/bf16"`, `"deepinfra/fp8"`, NOT just `"novita"`
+- For benchmarking, always set `"allow_fallbacks": false` to ensure you test a specific provider
+- `quantizations` accepts: `int4`, `int8`, `fp4`, `fp6`, `fp8`, `fp16`, `bf16`, `fp32`, `unknown`
+- Check `max_completion_tokens` per provider — some (e.g. Venice: 8192) are too low for reasoning
+- The `--provider` and `--quantization` flags in eval.py map to these fields
