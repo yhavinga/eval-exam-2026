@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS runs (
     temperature REAL NOT NULL,
     top_p REAL NOT NULL,
     top_k INTEGER NOT NULL,
-    presence_penalty REAL NOT NULL,
+    presence_penalty REAL,
     max_tokens INTEGER NOT NULL,
     reasoning_effort TEXT NOT NULL,
     run_number INTEGER NOT NULL,

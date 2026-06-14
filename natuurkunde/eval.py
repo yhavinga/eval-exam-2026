@@ -257,7 +257,7 @@ def cmd_solve(args):
         LEFT JOIN answers a ON a.run_id = r.id
         WHERE r.model = ? AND r.inference_stack = ? AND r.base_url = ?
           AND r.temperature = ? AND r.top_p = ? AND r.top_k = ?
-          AND r.presence_penalty = ? AND r.max_tokens = ? AND r.reasoning_effort = ?
+          AND r.presence_penalty IS ? AND r.max_tokens = ? AND r.reasoning_effort = ?
           AND r.run_number = ?
         GROUP BY r.id
     """, (log_model, stack, base_url, args.temperature, args.top_p,
@@ -427,10 +427,9 @@ def cmd_solve(args):
                 content.append({"type": "text", "text": f"Vraag {q['question_number']}: {prompt}"})
                 messages.append({"role": "user", "content": content})
 
-                extra_body = {
-                    "top_k": args.top_k,
-                    "presence_penalty": args.presence_penalty
-                }
+                extra_body = {"top_k": args.top_k}
+                if args.presence_penalty is not None:
+                    extra_body["presence_penalty"] = args.presence_penalty
                 if "openrouter" in base_url:
                     or_effort = {"off": "none", "low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh"}.get(reasoning_effort, "high")
                     extra_body["reasoning"] = {"effort": or_effort}
@@ -584,7 +583,7 @@ def main():
     p_solve.add_argument("--temperature", type=float, default=1.0, help="Temperature (1.0 for Qwen thinking)")
     p_solve.add_argument("--top-p", type=float, default=0.95, help="Top-p sampling")
     p_solve.add_argument("--top-k", type=int, default=20, help="Top-k sampling")
-    p_solve.add_argument("--presence-penalty", type=float, default=1.5, help="Presence penalty (shortens thinking)")
+    p_solve.add_argument("--presence-penalty", type=float, default=None, help="Presence penalty (only sent to the API when passed)")
     p_solve.add_argument("--max-tokens", type=int, default=65536, help="Max tokens for response")
     p_solve.add_argument("--reasoning-effort", default="on", help='Reasoning effort: "off", "low", "medium", "high", "xhigh"')
     p_solve.add_argument("--solve-run-number", type=int, required=True, help="Solve run number (explicit, for parallel runs)")
