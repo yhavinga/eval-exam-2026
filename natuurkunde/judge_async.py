@@ -23,10 +23,20 @@ ANTWOORD VAN LEERLING:
 OPDRACHT:
 Beoordeel het antwoord volgens het correctievoorschrift.
 
+Let op: soms kon de leerling de vraag niet maken doordat een benodigde afbeelding of
+figuur niet is meegestuurd. Signalen hiervoor zijn: het antwoord zegt expliciet dat er
+geen afbeelding/figuur is ontvangen of zichtbaar was (bijvoorbeeld "ik heb geen
+afbeelding ontvangen" of "ik heb de figuur bij vraag X nodig"), OF het antwoord is
+opvallend kort/leeg en mist juist de gegevens die alleen uit de figuur te halen zijn.
+Een kort maar inhoudelijk correct antwoord is GEEN ontbrekende afbeelding. Beoordeel de
+score bij een ontbrekende afbeelding nog steeds volgens het correctievoorschrift
+(meestal 0) en zet [MISSING_IMAGE=ja]. In alle andere gevallen [MISSING_IMAGE=nee].
+
 Geef je beoordeling in dit formaat (motivatie EERST, dan scores):
 MOTIVATIE: [uitleg waarom deze score]
 [SCORE=getal]
-[MAX=getal]"""
+[MAX=getal]
+[MISSING_IMAGE=ja of nee]"""
 
 
 def _build_extra_body(base_url: str, reasoning_effort: str,
@@ -54,6 +64,17 @@ def _parse_score(motivation: str | None) -> tuple[float | None, float | None]:
     score = float(score_match.group(1)) if score_match else None
     max_score = float(max_match.group(1)) if max_match else None
     return score, max_score
+
+
+def _parse_missing_image(motivation: str | None) -> bool:
+    """True if the judge flagged the answer as too short / wrong because a required
+    image was not delivered to the solving model (transport failure, not a real miss).
+    Requires the bracketed single-token form so a model that echoes the template's
+    "[MISSING_IMAGE=ja of nee]" placeholder is not misread as a positive."""
+    if not motivation:
+        return False
+    m = re.search(r'\[MISSING_IMAGE[=:]\s*(ja|nee|true|false|yes|no)\]', motivation, re.IGNORECASE)
+    return bool(m) and m.group(1).lower() in ("ja", "true", "yes")
 
 
 async def _judge_one(
@@ -128,6 +149,8 @@ async def _judge_one(
             progress["errors"] += 1
         elif score is None:
             progress["no_score"] += 1
+        if _parse_missing_image(motivation):
+            progress["missing_image"].add(answer_id)
         total = progress["total"]
         done = progress["done"]
         errors = progress["errors"]
@@ -290,7 +313,7 @@ async def run(
 
     print(f"Judging {len(tasks)} answer×run pairs with {judge_model} (concurrency={concurrency})...")
 
-    progress = {"done": 0, "errors": 0, "no_score": 0, "total": len(tasks)}
+    progress = {"done": 0, "errors": 0, "no_score": 0, "total": len(tasks), "missing_image": set()}
     semaphore = asyncio.Semaphore(concurrency)
     db_lock = asyncio.Lock()
 
@@ -317,5 +340,15 @@ async def run(
     if errors:
         parts.append(f"{errors} errors")
     print(f"Done: {', '.join(parts)}.")
+
+    # Surface answers the judge flagged as missing their image: these low scores reflect a
+    # transport failure (the figure never reached the solver), not the model's ability, and
+    # are the questions to re-solve rather than trust.
+    missing_ids = progress["missing_image"]
+    if missing_ids:
+        qnum_by_id = {a["id"]: a["question_number"] for a in answers}
+        qnums = sorted({qnum_by_id[i] for i in missing_ids}, key=int)
+        qlist = ", ".join(f"Q{n}" for n in qnums)
+        print(f"IMPORTANT {qlist} are reported to have missing images")
 
     conn.close()
