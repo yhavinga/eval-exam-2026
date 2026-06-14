@@ -323,17 +323,29 @@ def cmd_solve(args):
 
             if existing and existing["response"] is not None:
                 print(f"  Q{q['question_number']}: already answered, adding to context")
+                # Reconstruct the full user turn (images + prompt) identical to a fresh
+                # solve, so resumed runs carry the same visual context forward to later
+                # questions as an uninterrupted run would.
+                image_paths = json.loads(q["image_paths"])
+                prompt = q["prompt"]
                 if is_genai:
-                    contents.append(types.Content(role="user", parts=[
-                        types.Part.from_text(text=f"[Vraag {q['question_number']} was al beantwoord]")
-                    ]))
+                    parts = []
+                    for img_path in image_paths:
+                        parts.append(types.Part.from_bytes(
+                            data=(IMAGES_BASE / img_path).read_bytes(), mime_type="image/png"
+                        ))
+                    parts.append(types.Part.from_text(text=f"Vraag {q['question_number']}: {prompt}"))
+                    contents.append(types.Content(role="user", parts=parts))
                     contents.append(types.Content(role="model", parts=[
                         types.Part.from_text(text=existing["response"])
                     ]))
                 else:
-                    messages.append({"role": "user", "content": [
-                        {"type": "text", "text": f"[Vraag {q['question_number']} was al beantwoord]"}
-                    ]})
+                    content = []
+                    for img_path in image_paths:
+                        img_data = load_image_as_base64(IMAGES_BASE / img_path)
+                        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}})
+                    content.append({"type": "text", "text": f"Vraag {q['question_number']}: {prompt}"})
+                    messages.append({"role": "user", "content": content})
                     messages.append({"role": "assistant", "content": existing["response"]})
                 continue
 
