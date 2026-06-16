@@ -7,11 +7,13 @@ Usage:
     python eval.py solve              - Generate answers for all questions
     python eval.py judge              - Judge all answers
     python eval.py runs               - List runs with scores
+    python eval.py sweep              - Define/track parameter sweeps
 """
 
 import argparse
 import asyncio
 import base64
+import itertools
 import json
 import os
 import re
@@ -233,16 +235,22 @@ def cmd_solve(args):
     # log_model: name for database, defaults to API model name if not specified
     log_model = args.log_model or args.model
 
-    # Stack detection and client creation
+    # Resolve stack/base_url first; defer client creation so --dry-run needs no
+    # credentials (it inspects the DB and exits without ever calling the API).
     is_genai = args.stack == "genai"
     if is_genai:
-        genai_client = genai.Client(api_key=get_api_key("genai"))
         stack = "genai"
         base_url = GENAI_BASE_URL
     else:
         stack = "openrouter" if "openrouter" in args.base_url else args.stack
-        client = OpenAI(base_url=args.base_url, api_key=get_api_key(args.base_url), timeout=3600.0)
         base_url = args.base_url
+
+    genai_client = client = None
+    if not args.dry_run:
+        if is_genai:
+            genai_client = genai.Client(api_key=get_api_key("genai"))
+        else:
+            client = OpenAI(base_url=args.base_url, api_key=get_api_key(args.base_url), timeout=3600.0)
 
     reasoning_effort = args.reasoning_effort
     run_number = args.solve_run_number
@@ -258,10 +266,29 @@ def cmd_solve(args):
         WHERE r.model = ? AND r.inference_stack = ? AND r.base_url = ?
           AND r.temperature = ? AND r.top_p = ? AND r.top_k = ?
           AND r.presence_penalty IS ? AND r.max_tokens = ? AND r.reasoning_effort = ?
+          AND r.provider IS ? AND r.quantization IS ?
           AND r.run_number = ?
         GROUP BY r.id
     """, (log_model, stack, base_url, args.temperature, args.top_p,
-          args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number)).fetchone()
+          args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort,
+          args.provider, args.quantization, run_number)).fetchone()
+
+    if args.dry_run:
+        route = f"{(args.provider or '-')}-{(args.quantization or '-')}"
+        if existing_run and existing_run["ok"] >= question_count:
+            print(f"[dry-run] run {existing_run['id']} already complete "
+                  f"({existing_run['ok']}/{question_count}); --force would re-run it.")
+        elif existing_run and not args.force:
+            print(f"[dry-run] RESUME run {existing_run['id']}: {existing_run['run_name']} "
+                  f"({existing_run['ok']}/{question_count} done) — would solve the remaining "
+                  f"{question_count - existing_run['ok']} question(s).")
+        else:
+            print(f"[dry-run] CREATE new run: {log_model} / {stack} / {route} / "
+                  f"t={args.temperature} / reasoning={reasoning_effort} / #{run_number} — "
+                  f"would solve {question_count} question(s).")
+        print("[dry-run] no API calls, no database writes.")
+        conn.close()
+        return
 
     if existing_run and not args.force:
         if existing_run["ok"] >= question_count:
@@ -276,11 +303,13 @@ def cmd_solve(args):
         created_at = now_iso()
         cur = conn.execute("""
             INSERT INTO runs (created_at, model, inference_stack, base_url, temperature, top_p, top_k,
-                              presence_penalty, max_tokens, reasoning_effort, run_number, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              presence_penalty, max_tokens, reasoning_effort, run_number, notes,
+                              provider, quantization)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id, run_name
         """, (created_at, log_model, stack, base_url, args.temperature, args.top_p,
-              args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number, args.notes))
+              args.top_k, args.presence_penalty, args.max_tokens, reasoning_effort, run_number, args.notes,
+              args.provider, args.quantization))
         row = cur.fetchone()
         run_id = row["id"]
         run_name = row["run_name"]
@@ -522,7 +551,228 @@ def cmd_judge(args):
         force=args.force,
         provider=getattr(args, 'provider', None),
         quantization=getattr(args, 'quantization', None),
+        dry_run=args.dry_run,
     ))
+
+
+# --- Parameter sweeps --------------------------------------------------------
+#
+# A sweep is a declarative grid. Its `spec` names which dimensions to vary
+# (`axes`, cross-producted) and pins every other solve dimension (`fixed`), so
+# each resulting cell is a fully-specified config that can be matched exactly
+# against the runs table. The runs table is the observation store; coverage is a
+# deficit query, and existing runs count automatically toward any cell they fit.
+
+# Every solve dimension. The required ones must be set by an axis or `fixed`;
+# the optional ones (nullable in the schema) default to None when neither does.
+SOLVE_DIMS = ["model", "inference_stack", "base_url", "temperature", "top_p",
+              "top_k", "presence_penalty", "max_tokens", "reasoning_effort",
+              "provider", "quantization"]
+REQUIRED_DIMS = ["model", "inference_stack", "base_url", "temperature", "top_p",
+                 "top_k", "max_tokens", "reasoning_effort"]
+
+
+def expand_cells(spec: dict) -> list[dict]:
+    """Cross-product the swept axes with the fixed values, dropping exclusions.
+
+    Each cell pins all SOLVE_DIMS (optional ones default to None) so coverage can
+    be matched exactly with no hidden confounds. An exclusion is a partial-match
+    object: a cell is dropped if it equals the rule on every key the rule names.
+    """
+    axes = spec.get("axes", {})
+    fixed = spec.get("fixed", {})
+    exclude = spec.get("exclude", [])
+    axis_names = list(axes.keys())
+
+    cells = []
+    for combo in itertools.product(*(axes[a] for a in axis_names)):
+        cell = dict(fixed)
+        cell.update(dict(zip(axis_names, combo)))
+        if any(all(cell.get(k) == v for k, v in rule.items()) for rule in exclude):
+            continue
+        for dim in SOLVE_DIMS:
+            cell.setdefault(dim, None)
+        cells.append(cell)
+    return cells
+
+
+def cell_complete_runs(conn, cell: dict) -> int:
+    """Count runs matching a cell's exact config tuple that answered every
+    question without error (a 'complete' replication)."""
+    row = conn.execute("""
+        SELECT COUNT(DISTINCT r.id) AS complete
+        FROM runs r
+        CROSS JOIN (SELECT COUNT(*) AS qcount FROM questions) q
+        JOIN (
+            SELECT run_id, COUNT(*) AS ok_count
+            FROM answers WHERE response IS NOT NULL AND error IS NULL
+            GROUP BY run_id
+        ) ok ON ok.run_id = r.id AND ok.ok_count >= q.qcount
+        WHERE r.model IS ? AND r.inference_stack IS ? AND r.base_url IS ?
+          AND r.temperature IS ? AND r.top_p IS ? AND r.top_k IS ?
+          AND r.presence_penalty IS ? AND r.max_tokens IS ? AND r.reasoning_effort IS ?
+          AND r.provider IS ? AND r.quantization IS ?
+    """, tuple(cell[d] for d in SOLVE_DIMS)).fetchone()
+    return row["complete"]
+
+
+def cell_max_run_number(conn, cell: dict) -> int:
+    """Highest run_number already used for this exact cell (0 if none), so new
+    replications get the next free numbers."""
+    row = conn.execute("""
+        SELECT COALESCE(MAX(run_number), 0) AS m FROM runs
+        WHERE model IS ? AND inference_stack IS ? AND base_url IS ?
+          AND temperature IS ? AND top_p IS ? AND top_k IS ?
+          AND presence_penalty IS ? AND max_tokens IS ? AND reasoning_effort IS ?
+          AND provider IS ? AND quantization IS ?
+    """, tuple(cell[d] for d in SOLVE_DIMS)).fetchone()
+    return row["m"]
+
+
+def cell_label(spec: dict, cell: dict) -> str:
+    """Short label of just the swept axes — what actually varies between cells."""
+    axes = spec.get("axes", {})
+    if not axes:
+        return "(single cell)"
+    return " ".join(f"{a}={cell[a]}" for a in axes)
+
+
+def solve_command(cell: dict, run_number: int, dry_run: bool = False) -> str:
+    parts = ["python eval.py solve",
+             f"--model {cell['model']}",
+             f"--stack {cell['inference_stack']}",
+             f"--base-url {cell['base_url']}",
+             f"--temperature {cell['temperature']}",
+             f"--top-p {cell['top_p']}",
+             f"--top-k {cell['top_k']}",
+             f"--max-tokens {cell['max_tokens']}",
+             f"--reasoning-effort {cell['reasoning_effort']}"]
+    if cell.get("presence_penalty") is not None:
+        parts.append(f"--presence-penalty {cell['presence_penalty']}")
+    if cell.get("provider") is not None:
+        parts.append(f"--provider {cell['provider']}")
+    if cell.get("quantization") is not None:
+        parts.append(f"--quantization {cell['quantization']}")
+    parts.append(f"--solve-run-number {run_number}")
+    if dry_run:
+        parts.append("--dry-run")
+    return " ".join(parts)
+
+
+def judge_command(cell: dict, judge: dict, run_numbers: list[int], dry_run: bool = False) -> str:
+    # The judge filter keys on (answer-model, solve-runs, solve-reasoning) and is
+    # provider-agnostic, so this grades every matching answer once regardless of
+    # provider — which is what we want; duplicate invocations are idempotent.
+    runs = ",".join(str(n) for n in run_numbers)
+    parts = ["python eval.py judge",
+             f"--judge-model {judge['judge_model']}",
+             f"--judge-stack {judge.get('judge_stack', 'openrouter')}",
+             f"--judge-base-url {judge.get('judge_base_url', OPENROUTER_BASE_URL)}",
+             f"--reasoning-effort {judge.get('reasoning_effort', 'medium')}",
+             f"--answer-model {cell['model']}",
+             f"--solve-runs {runs}",
+             f"--solve-reasoning {cell['reasoning_effort']}",
+             f"--judge-count {judge.get('judge_count', 1)}"]
+    if dry_run:
+        parts.append("--dry-run")
+    return " ".join(parts)
+
+
+def load_spec(path: str) -> dict:
+    """Read and validate a sweep spec, failing loudly on an unpinned dimension so
+    no confound slips in unspecified."""
+    with open(path) as f:
+        spec = json.load(f)
+    for key in ("name", "goal", "target_n"):
+        if key not in spec:
+            raise SystemExit(f"Spec is missing required field: {key}")
+    axes, fixed = spec.get("axes", {}), spec.get("fixed", {})
+    missing = [d for d in REQUIRED_DIMS if d not in axes and d not in fixed]
+    if missing:
+        raise SystemExit(
+            f"Spec does not pin required dimension(s): {', '.join(missing)}. "
+            f"Every non-swept dimension must appear in `fixed`.")
+    return spec
+
+
+def get_sweep(conn, name: str):
+    row = conn.execute("SELECT * FROM sweeps WHERE name = ?", (name,)).fetchone()
+    if not row:
+        raise SystemExit(f"No sweep named '{name}'. Define it with `sweep define` first.")
+    return row, json.loads(row["spec"])
+
+
+def print_coverage(conn, spec: dict, cells: list[dict]) -> int:
+    """Print the per-cell reps/target/deficit table; return total runs still needed."""
+    target = spec["target_n"]
+    print(f"{'cell':<44} {'reps':>5} {'target':>6} {'deficit':>7}")
+    print("-" * 66)
+    total_deficit = 0
+    for cell in cells:
+        complete = cell_complete_runs(conn, cell)
+        deficit = max(0, target - complete)
+        total_deficit += deficit
+        flag = "  <-- under-sampled" if deficit else ""
+        print(f"{cell_label(spec, cell):<44} {complete:>5} {target:>6} {deficit:>7}{flag}")
+    print("-" * 66)
+    print(f"Total complete runs still needed: {total_deficit}")
+    return total_deficit
+
+
+def cmd_sweep(args):
+    """Define and track parameter sweeps (define / status / next)."""
+    conn = init_db()
+    if args.sweep_command == "define":
+        spec = load_spec(args.spec_file)
+        cells = expand_cells(spec)
+        total = len(cells) * spec["target_n"]
+        if args.dry_run:
+            print(f"[dry-run] sweep '{spec['name']}': {len(cells)} cells x target "
+                  f"{spec['target_n']} = {total} complete runs.\nCoverage against existing runs:\n")
+            print_coverage(conn, spec, cells)
+            print("\n[dry-run] nothing written — run without --dry-run to register.")
+            conn.close()
+            return
+        if conn.execute("SELECT 1 FROM sweeps WHERE name = ?", (spec["name"],)).fetchone():
+            raise SystemExit(f"Sweep '{spec['name']}' already exists. Pick a new name first.")
+        conn.execute("""
+            INSERT INTO sweeps (created_at, name, goal, spec, status)
+            VALUES (?, ?, ?, ?, 'open')
+        """, (now_iso(), spec["name"], spec["goal"], json.dumps(spec)))
+        conn.commit()
+        print(f"Defined sweep '{spec['name']}': {len(cells)} cells x "
+              f"target {spec['target_n']} = {total} complete runs.")
+
+    elif args.sweep_command == "status":
+        row, spec = get_sweep(conn, args.name)
+        cells = expand_cells(spec)
+        print(f"Sweep '{spec['name']}' [{row['status']}] — {spec['goal']}")
+        print(f"{len(cells)} cells, target {spec['target_n']} complete runs each\n")
+        print_coverage(conn, spec, cells)
+
+    elif args.sweep_command == "next":
+        row, spec = get_sweep(conn, args.name)
+        cells = expand_cells(spec)
+        target = spec["target_n"]
+        judge = spec.get("judge")
+        any_needed = False
+        for cell in cells:
+            deficit = max(0, target - cell_complete_runs(conn, cell))
+            if not deficit:
+                continue
+            any_needed = True
+            start = cell_max_run_number(conn, cell) + 1
+            new_numbers = list(range(start, start + deficit))
+            print(f"# {cell_label(spec, cell)}  (need {deficit})")
+            for rn in new_numbers:
+                print("  " + solve_command(cell, rn, dry_run=args.dry_run))
+            if judge:
+                print("  " + judge_command(cell, judge, new_numbers, dry_run=args.dry_run))
+            print()
+        if not any_needed:
+            print("All cells meet target. Nothing to run.")
+
+    conn.close()
 
 
 def cmd_runs(args):
@@ -591,6 +841,7 @@ def main():
     p_solve.add_argument("--quantization", help="OpenRouter quantization filter (e.g. bf16, fp8, int8)")
     p_solve.add_argument("--notes", help="Optional notes for this run")
     p_solve.add_argument("--force", action="store_true", help="Create a new run even if one exists")
+    p_solve.add_argument("--dry-run", action="store_true", help="Report create-vs-resume and exit; no API calls or DB writes")
     p_solve.set_defaults(func=cmd_solve)
 
     # judge command
@@ -608,7 +859,23 @@ def main():
     p_judge.add_argument("--provider", help="OpenRouter provider slug (e.g. novita)")
     p_judge.add_argument("--quantization", help="OpenRouter quantization filter (e.g. bf16, fp8, int8)")
     p_judge.add_argument("--force", action="store_true", help="Re-judge already judged answers")
+    p_judge.add_argument("--dry-run", action="store_true", help="Report how many answers would be judged and exit; no API calls or DB writes")
     p_judge.set_defaults(func=cmd_judge)
+
+    # sweep command (parameter sweeps)
+    p_sweep = subparsers.add_parser("sweep", help="Define and track parameter sweeps")
+    sweep_sub = p_sweep.add_subparsers(dest="sweep_command", required=True)
+    p_sweep_define = sweep_sub.add_parser("define", help="Define a sweep from a JSON spec file")
+    p_sweep_define.add_argument("--spec-file", required=True, help="Path to the sweep spec JSON")
+    p_sweep_define.add_argument("--dry-run", action="store_true", help="Preview cells and coverage without registering the sweep")
+    p_sweep_define.set_defaults(func=cmd_sweep)
+    p_sweep_status = sweep_sub.add_parser("status", help="Show per-cell run coverage and deficits")
+    p_sweep_status.add_argument("name", help="Sweep name")
+    p_sweep_status.set_defaults(func=cmd_sweep)
+    p_sweep_next = sweep_sub.add_parser("next", help="Emit solve/judge commands to fill under-sampled cells")
+    p_sweep_next.add_argument("name", help="Sweep name")
+    p_sweep_next.add_argument("--dry-run", action="store_true", help="Append --dry-run to every emitted command (preview the whole grid)")
+    p_sweep_next.set_defaults(func=cmd_sweep)
 
     # runs command
     p_runs = subparsers.add_parser("runs", help="List runs with scores")

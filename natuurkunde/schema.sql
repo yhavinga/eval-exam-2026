@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS runs (
     reasoning_effort TEXT NOT NULL,
     run_number INTEGER NOT NULL,
     notes TEXT,
+    -- OpenRouter routing, first-class so a provider/quant can be a clean sweep
+    -- axis. Nullable: lmstudio/genai and pre-convention runs leave them unset.
+    provider TEXT,
+    quantization TEXT,
     run_name TEXT GENERATED ALWAYS AS (
         model || '/' || inference_stack || '/t' || temperature || '/reasoning-' || reasoning_effort || '/' || run_number
     ) STORED
@@ -57,6 +61,20 @@ CREATE TABLE IF NOT EXISTS judgements (
     motivation TEXT,
     duration_ms INTEGER,
     error TEXT
+);
+
+-- A parameter sweep. `spec` is the declarative grid (axes x fixed - exclude +
+-- target_n + judge); cells are derived from it on demand rather than stored, so
+-- editing the spec can never leave stale cells behind. `goal` is the hypothesis;
+-- `learnings` is filled in as results land.
+CREATE TABLE IF NOT EXISTS sweeps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    goal TEXT NOT NULL,
+    spec TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    learnings TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_answers_run ON answers(run_id);

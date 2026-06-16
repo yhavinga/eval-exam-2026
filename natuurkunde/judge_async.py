@@ -190,39 +190,40 @@ async def run(
     force: bool,
     provider: str | None = None,
     quantization: str | None = None,
+    dry_run: bool = False,
 ):
     conn = init_db()
     is_genai = judge_stack == "genai"
-    if is_genai:
-        genai_client = genai.Client(api_key=get_api_key("genai"))
-        genai_levels = {"off": "minimal", "low": "low", "medium": "medium",
-                        "high": "high", "on": "high", "xhigh": "high"}
-        level = genai_levels.get(reasoning_effort, "high")
-        if "gemma" in judge_model.lower():
-            thinking_cfg = types.ThinkingConfig(
-                thinking_level="minimal" if reasoning_effort == "off" else None,
-                include_thoughts=reasoning_effort != "off",
+    # Defer client creation past the dry-run early-return so --dry-run (which only
+    # counts answers from the DB) needs no credentials.
+    client = genai_client = genai_config = extra_body = None
+    if not dry_run:
+        if is_genai:
+            genai_client = genai.Client(api_key=get_api_key("genai"))
+            genai_levels = {"off": "minimal", "low": "low", "medium": "medium",
+                            "high": "high", "on": "high", "xhigh": "high"}
+            level = genai_levels.get(reasoning_effort, "high")
+            if "gemma" in judge_model.lower():
+                thinking_cfg = types.ThinkingConfig(
+                    thinking_level="minimal" if reasoning_effort == "off" else None,
+                    include_thoughts=reasoning_effort != "off",
+                )
+            else:
+                thinking_cfg = types.ThinkingConfig(
+                    thinking_level=level, include_thoughts=True,
+                )
+            genai_config = types.GenerateContentConfig(
+                thinking_config=thinking_cfg,
+                max_output_tokens=16384,
+                temperature=temperature,
             )
         else:
-            thinking_cfg = types.ThinkingConfig(
-                thinking_level=level, include_thoughts=True,
+            client = AsyncOpenAI(
+                base_url=judge_base_url,
+                api_key=get_api_key(judge_base_url),
+                timeout=3600.0,
             )
-        genai_config = types.GenerateContentConfig(
-            thinking_config=thinking_cfg,
-            max_output_tokens=16384,
-            temperature=temperature,
-        )
-        client = None
-        extra_body = None
-    else:
-        client = AsyncOpenAI(
-            base_url=judge_base_url,
-            api_key=get_api_key(judge_base_url),
-            timeout=3600.0,
-        )
-        extra_body = _build_extra_body(judge_base_url, reasoning_effort, provider, quantization)
-        genai_client = None
-        genai_config = None
+            extra_body = _build_extra_body(judge_base_url, reasoning_effort, provider, quantization)
 
     # Validate solve runs exist for this model + reasoning effort
     placeholders = ",".join("?" * len(solve_run_numbers))
@@ -319,6 +320,13 @@ async def run(
 
     if not tasks:
         print("All answers already judged. Use --force to re-judge.")
+        conn.close()
+        return
+
+    if dry_run:
+        print(f"[dry-run] would judge {len(tasks)} answer×run pair(s) with {judge_model} "
+              f"(answer-model={answer_model}, solve-runs={solve_run_numbers}, "
+              f"reasoning={solve_reasoning}, judge-count={judge_count}) — no API calls, no DB writes.")
         conn.close()
         return
 
