@@ -23,6 +23,17 @@ ANTWOORD VAN LEERLING:
 OPDRACHT:
 Beoordeel het antwoord volgens het correctievoorschrift.
 
+BEOORDELINGSREGELS (pas toe bovenop het beoordelingsmodel):
+- Scorepunten zijn gehele getallen van 0 t/m het maximum; geen halve of negatieve punten.
+- Volledig juist -> maximum; gedeeltelijk juist -> deelscore volgens het beoordelingsmodel.
+- Een vakinhoudelijk aantoonbaar juist antwoord dat niet letterlijk in het model staat (bv. een wiskundig GELIJKWAARDIGE methode) krijgt punten naar analogie / in de geest van het model -- reken een gelijkwaardige correcte methode dus NIET fout.
+- Mogelijkheden gescheiden door "/" zijn gelijkwaardige formuleringen; tekst tussen haakjes hoeft de leerling niet te noemen.
+- Een ontbrekende of foutieve gevraagde uitleg/afleiding/berekening -> 0 punten voor dat onderdeel, tenzij het model anders aangeeft.
+- Eenzelfde fout wordt binnen een vraag maar een keer aangerekend (consequent doorrekenen met een al afgestrafte fout geeft geen extra aftrek), tenzij de vraag daardoor sterk vereenvoudigt.
+- 'Gebruik van een formule'-scorepunt: toekennen als de juiste formule is gebruikt met minstens een juist ingevulde grootheid (bij afleiding/redenering: formule genoteerd EN een relevante bewerking/redeneerstap).
+- 'Completeren van de berekening/bepaling'-scorepunt: NIET toekennen bij een rekenfout, verkeerd gecombineerde elementen, ontbrekende/onpassende eenheid, of een uitkomst alleen als orde van grootte -- dus ook niet als de einduitkomst hierdoor afwijkt van de vereiste uitkomst.
+- Significantie alleen beoordelen als er expliciet naar significante cijfers wordt gevraagd of de juistheid van een gegeven waarde moet worden aangetoond.
+
 Let op: soms kon de leerling de vraag niet maken doordat een benodigde afbeelding of
 figuur niet is meegestuurd. Signalen hiervoor zijn: het antwoord zegt expliciet dat er
 geen afbeelding/figuur is ontvangen of zichtbaar was (bijvoorbeeld "ik heb geen
