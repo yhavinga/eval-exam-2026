@@ -1,0 +1,37 @@
+Resuming run 68: gemma-4-31b-it/genai/t1.0/reasoning-medium/3 (24/25 ok)
+Solving 25 questions in 5 topics...
+
+=== Topic: vw-1023-a-26-1-o / botsproef (7 questions) ===
+  Q01: already answered, adding to context
+  Q02: already answered, adding to context
+  Q03: already answered, adding to context
+  Q04: already answered, adding to context
+  Q05: already answered, adding to context
+  Q06: already answered, adding to context
+  Q07: already answered, adding to context
+
+=== Topic: vw-1023-a-26-1-o / elektriciteitspracticum (3 questions) ===
+  Q08: already answered, adding to context
+  Q09: already answered, adding to context
+  Q10: already answered, adding to context
+
+=== Topic: vw-1023-a-26-1-o / cepheiden (5 questions) ===
+  Q11: already answered, adding to context
+  Q12: already answered, adding to context
+  Q13: already answered, adding to context
+  Q14: already answered, adding to context
+  Q15: already answered, adding to context
+
+=== Topic: vw-1023-a-26-1-o / morphodidius (3 questions) ===
+  Q16: already answered, adding to context
+  Q17: already answered, adding to context
+  Q18: already answered, adding to context
+
+=== Topic: vw-1023-a-26-1-o / linac (7 questions) ===
+  Q19: already answered, adding to context
+  Q20: solving... done (36008ms, ctx=4 msgs)
+  Q21: already answered, adding to context
+  Q22: already answered, adding to context
+  Q23: already answered, adding to context
+  Q24: already answered, adding to context
+  Q25: already answered, adding to context

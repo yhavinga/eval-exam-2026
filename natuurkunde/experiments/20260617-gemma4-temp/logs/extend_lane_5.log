@@ -1,0 +1,37 @@
+Created run 72: gemma-4-31b-it/genai/t0.3/reasoning-medium/2
+Solving 25 questions in 5 topics...
+
+=== Topic: vw-1023-a-26-1-o / botsproef (7 questions) ===
+  Q01: solving... done (42986ms, ctx=2 msgs)
+  Q02: solving... done (88949ms, ctx=4 msgs)
+  Q03: solving... done (58259ms, ctx=6 msgs)
+  Q04: solving... done (93288ms, ctx=8 msgs)
+  Q05: solving... done (204141ms, ctx=10 msgs)
+  Q06: solving... done (31134ms, ctx=12 msgs)
+  Q07: solving... RATE LIMITED, waiting 5s... RATE LIMITED, waiting 10s... done (81106ms, ctx=14 msgs)
+
+=== Topic: vw-1023-a-26-1-o / elektriciteitspracticum (3 questions) ===
+  Q08: solving... done (102377ms, ctx=2 msgs)
+  Q09: solving... done (45350ms, ctx=4 msgs)
+  Q10: solving... done (66940ms, ctx=6 msgs)
+
+=== Topic: vw-1023-a-26-1-o / cepheiden (5 questions) ===
+  Q11: solving... done (67071ms, ctx=2 msgs)
+  Q12: solving... done (72617ms, ctx=4 msgs)
+  Q13: solving... done (114536ms, ctx=6 msgs)
+  Q14: solving... done (45143ms, ctx=8 msgs)
+  Q15: solving... done (147489ms, ctx=10 msgs)
+
+=== Topic: vw-1023-a-26-1-o / morphodidius (3 questions) ===
+  Q16: solving... done (63500ms, ctx=2 msgs)
+  Q17: solving... done (99299ms, ctx=4 msgs)
+  Q18: solving... done (107774ms, ctx=6 msgs)
+
+=== Topic: vw-1023-a-26-1-o / linac (7 questions) ===
+  Q19: solving... done (26525ms, ctx=2 msgs)
+  Q20: solving... done (30883ms, ctx=4 msgs)
+  Q21: solving... done (49468ms, ctx=6 msgs)
+  Q22: solving... done (78231ms, ctx=8 msgs)
+  Q23: solving... done (51092ms, ctx=10 msgs)
+  Q24: solving... done (102007ms, ctx=12 msgs)
+  Q25: solving... done (49981ms, ctx=14 msgs)

@@ -1,0 +1,37 @@
+Created run 73: gemma-4-31b-it/genai/t0.0/reasoning-medium/2
+Solving 25 questions in 5 topics...
+
+=== Topic: vw-1023-a-26-1-o / botsproef (7 questions) ===
+  Q01: solving... done (48722ms, ctx=2 msgs)
+  Q02: solving... done (101741ms, ctx=4 msgs)
+  Q03: solving... done (81630ms, ctx=6 msgs)
+  Q04: solving... done (80912ms, ctx=8 msgs)
+  Q05: solving... done (216658ms, ctx=10 msgs)
+  Q06: solving... RATE LIMITED, waiting 5s... done (32348ms, ctx=12 msgs)
+  Q07: solving... RATE LIMITED, waiting 5s... RATE LIMITED, waiting 10s... RATE LIMITED, waiting 15s... done (80297ms, ctx=14 msgs)
+
+=== Topic: vw-1023-a-26-1-o / elektriciteitspracticum (3 questions) ===
+  Q08: solving... done (75708ms, ctx=2 msgs)
+  Q09: solving... done (49663ms, ctx=4 msgs)
+  Q10: solving... done (66633ms, ctx=6 msgs)
+
+=== Topic: vw-1023-a-26-1-o / cepheiden (5 questions) ===
+  Q11: solving... done (102405ms, ctx=2 msgs)
+  Q12: solving... done (62688ms, ctx=4 msgs)
+  Q13: solving... done (363680ms, ctx=6 msgs)
+  Q14: solving... ERROR: Server disconnected without sending a response.
+  Q15: solving... RATE LIMITED, waiting 5s... RATE LIMITED, waiting 10s... done (171216ms, ctx=10 msgs)
+
+=== Topic: vw-1023-a-26-1-o / morphodidius (3 questions) ===
+  Q16: solving... done (61891ms, ctx=2 msgs)
+  Q17: solving... done (77157ms, ctx=4 msgs)
+  Q18: solving... done (163087ms, ctx=6 msgs)
+
+=== Topic: vw-1023-a-26-1-o / linac (7 questions) ===
+  Q19: solving... done (25130ms, ctx=2 msgs)
+  Q20: solving... done (36590ms, ctx=4 msgs)
+  Q21: solving... done (50586ms, ctx=6 msgs)
+  Q22: solving... done (74051ms, ctx=8 msgs)
+  Q23: solving... done (54706ms, ctx=10 msgs)
+  Q24: solving... done (88276ms, ctx=12 msgs)
+  Q25: solving... done (58765ms, ctx=14 msgs)

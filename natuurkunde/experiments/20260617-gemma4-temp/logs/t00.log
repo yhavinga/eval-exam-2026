@@ -1,0 +1,15 @@
+Created run 69: gemma-4-31b-it/genai/t0.0/reasoning-medium/1
+Solving 25 questions in 5 topics...
+
+=== Topic: vw-1023-a-26-1-o / botsproef (7 questions) ===
+  Q01: solving... done (46692ms, ctx=2 msgs)
+  Q02: solving... done (103856ms, ctx=4 msgs)
+  Q03: solving... done (73285ms, ctx=6 msgs)
+  Q04: solving... done (69888ms, ctx=8 msgs)
+  Q05: solving... done (221642ms, ctx=10 msgs)
+  Q06: solving... done (29779ms, ctx=12 msgs)
+  Q07: solving... done (80137ms, ctx=14 msgs)
+
+=== Topic: vw-1023-a-26-1-o / elektriciteitspracticum (3 questions) ===
+  Q08: solving... done (74630ms, ctx=2 msgs)
+  Q09: solving... 

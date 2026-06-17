@@ -1,0 +1,25 @@
+{
+  "name": "20260617-gemma4-temp",
+  "goal": "Does sampling temperature (0.0/0.3/0.5/0.7/1.0) change gemma-4-31b-it accuracy on the genai stack with thinking on?",
+  "target_n": 3,
+  "axes": {
+    "temperature": [0.0, 0.3, 0.5, 0.7, 1.0]
+  },
+  "fixed": {
+    "model": "gemma-4-31b-it",
+    "inference_stack": "genai",
+    "base_url": "https://generativelanguage.googleapis.com/v1",
+    "top_p": 0.95,
+    "top_k": 20,
+    "presence_penalty": null,
+    "max_tokens": 32768,
+    "reasoning_effort": "medium"
+  },
+  "exclude": [],
+  "judge": {
+    "judge_model": "openai/gpt-5.4",
+    "judge_stack": "openrouter",
+    "reasoning_effort": "medium",
+    "judge_count": 1
+  }
+}
