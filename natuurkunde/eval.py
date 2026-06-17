@@ -571,6 +571,18 @@ SOLVE_DIMS = ["model", "inference_stack", "base_url", "temperature", "top_p",
 REQUIRED_DIMS = ["model", "inference_stack", "base_url", "temperature", "top_p",
                  "top_k", "max_tokens", "reasoning_effort"]
 
+# A cell is matched against a run by its full config tuple. NULL-safe `IS` so the
+# optional dims (presence_penalty/provider/quantization) match unset against unset.
+CELL_MATCH_SQL = """
+        r.model IS ? AND r.inference_stack IS ? AND r.base_url IS ?
+          AND r.temperature IS ? AND r.top_p IS ? AND r.top_k IS ?
+          AND r.presence_penalty IS ? AND r.max_tokens IS ? AND r.reasoning_effort IS ?
+          AND r.provider IS ? AND r.quantization IS ?"""
+
+
+def cell_params(cell: dict) -> tuple:
+    return tuple(cell[d] for d in SOLVE_DIMS)
+
 
 def expand_cells(spec: dict) -> list[dict]:
     """Cross-product the swept axes with the fixed values, dropping exclusions.
@@ -599,7 +611,7 @@ def expand_cells(spec: dict) -> list[dict]:
 def cell_complete_runs(conn, cell: dict) -> int:
     """Count runs matching a cell's exact config tuple that answered every
     question without error (a 'complete' replication)."""
-    row = conn.execute("""
+    row = conn.execute(f"""
         SELECT COUNT(DISTINCT r.id) AS complete
         FROM runs r
         CROSS JOIN (SELECT COUNT(*) AS qcount FROM questions) q
@@ -608,25 +620,58 @@ def cell_complete_runs(conn, cell: dict) -> int:
             FROM answers WHERE response IS NOT NULL AND error IS NULL
             GROUP BY run_id
         ) ok ON ok.run_id = r.id AND ok.ok_count >= q.qcount
-        WHERE r.model IS ? AND r.inference_stack IS ? AND r.base_url IS ?
-          AND r.temperature IS ? AND r.top_p IS ? AND r.top_k IS ?
-          AND r.presence_penalty IS ? AND r.max_tokens IS ? AND r.reasoning_effort IS ?
-          AND r.provider IS ? AND r.quantization IS ?
-    """, tuple(cell[d] for d in SOLVE_DIMS)).fetchone()
+        WHERE {CELL_MATCH_SQL}
+    """, cell_params(cell)).fetchone()
     return row["complete"]
 
 
 def cell_max_run_number(conn, cell: dict) -> int:
     """Highest run_number already used for this exact cell (0 if none), so new
     replications get the next free numbers."""
-    row = conn.execute("""
-        SELECT COALESCE(MAX(run_number), 0) AS m FROM runs
-        WHERE model IS ? AND inference_stack IS ? AND base_url IS ?
-          AND temperature IS ? AND top_p IS ? AND top_k IS ?
-          AND presence_penalty IS ? AND max_tokens IS ? AND reasoning_effort IS ?
-          AND provider IS ? AND quantization IS ?
-    """, tuple(cell[d] for d in SOLVE_DIMS)).fetchone()
+    row = conn.execute(f"""
+        SELECT COALESCE(MAX(r.run_number), 0) AS m FROM runs r
+        WHERE {CELL_MATCH_SQL}
+    """, cell_params(cell)).fetchone()
     return row["m"]
+
+
+# t_{0.975} by degrees of freedom for small-sample 95% CIs; approaches 1.96 for large n.
+_T95 = {1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31,
+        9: 2.26, 10: 2.23, 12: 2.18, 15: 2.13, 20: 2.09, 30: 2.04, 60: 2.00}
+
+
+def mean_sd_ci(values: list[float]):
+    """Mean, sample sd, and 95% CI bounds. CI is None for n<2 (undefined)."""
+    import statistics
+    n = len(values)
+    mean = statistics.fmean(values)
+    if n < 2:
+        return mean, None, None, None
+    sd = statistics.stdev(values)
+    df = n - 1
+    t = _T95.get(df) or next((_T95[k] for k in sorted(_T95) if k >= df), 1.96)
+    half = t * sd / (n ** 0.5)
+    return mean, sd, mean - half, mean + half
+
+
+def cell_run_scores(conn, cell: dict, judge_model: str, judge_reasoning: str) -> list[float]:
+    """Per-run score% for complete runs in this cell, scored by the designated
+    judge's first pass (run_number=1), counting only fully-judged runs."""
+    qcount = conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0]
+    rows = conn.execute(f"""
+        SELECT r.id AS run_id,
+               100.0 * SUM(j.score) / NULLIF(SUM(j.max_score), 0) AS pct,
+               COUNT(j.id) AS judged
+        FROM runs r
+        JOIN answers a ON a.run_id = r.id AND a.response IS NOT NULL AND a.error IS NULL
+        JOIN judgements j ON j.answer_id = a.id
+             AND j.judge_model = ? AND j.reasoning_effort = ? AND j.run_number = 1
+             AND j.score IS NOT NULL
+        WHERE {CELL_MATCH_SQL}
+        GROUP BY r.id
+        HAVING judged >= ?
+    """, (judge_model, judge_reasoning) + cell_params(cell) + (qcount,)).fetchall()
+    return [row["pct"] for row in rows]
 
 
 def cell_label(spec: dict, cell: dict) -> str:
@@ -772,6 +817,30 @@ def cmd_sweep(args):
         if not any_needed:
             print("All cells meet target. Nothing to run.")
 
+    elif args.sweep_command == "report":
+        row, spec = get_sweep(conn, args.name)
+        cells = expand_cells(spec)
+        judge = spec.get("judge") or {}
+        jm = judge.get("judge_model")
+        jr = judge.get("reasoning_effort", "medium")
+        if not jm:
+            raise SystemExit("Sweep spec has no `judge`; cannot report scores.")
+        print(f"Sweep '{spec['name']}' — scored by {jm} (reasoning={jr})")
+        print(f"{'cell':<40} {'n':>3} {'mean%':>7} {'sd':>6} {'95% CI':>16}")
+        print("-" * 76)
+        for cell in cells:
+            scores = cell_run_scores(conn, cell, jm, jr)
+            if not scores:
+                print(f"{cell_label(spec, cell):<40} {0:>3} {'-':>7} {'-':>6} {'-':>16}")
+                continue
+            mean, sd, lo, hi = mean_sd_ci(scores)
+            ci = f"[{lo:.1f}, {hi:.1f}]" if lo is not None else "(n<2)"
+            sd_s = f"{sd:.2f}" if sd is not None else "-"
+            print(f"{cell_label(spec, cell):<40} {len(scores):>3} {mean:>7.1f} {sd_s:>6} {ci:>16}")
+        print("-" * 76)
+        print("Cells with overlapping CIs are not distinguishable at this n; widen "
+              "target_n to resolve small gaps (~15-20 runs for a ~2-pt difference).")
+
     conn.close()
 
 
@@ -876,6 +945,9 @@ def main():
     p_sweep_next.add_argument("name", help="Sweep name")
     p_sweep_next.add_argument("--dry-run", action="store_true", help="Append --dry-run to every emitted command (preview the whole grid)")
     p_sweep_next.set_defaults(func=cmd_sweep)
+    p_sweep_report = sweep_sub.add_parser("report", help="Per-cell score: n, mean%, sd, 95% CI (scored by the spec's judge)")
+    p_sweep_report.add_argument("name", help="Sweep name")
+    p_sweep_report.set_defaults(func=cmd_sweep)
 
     # runs command
     p_runs = subparsers.add_parser("runs", help="List runs with scores")
