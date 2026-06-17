@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+
+# Local SQLite snapshots/backups — keep out of git (eval.db itself stays tracked)
+eval.db.backup*
+eval.db.bak*
+eval.db.v1
+eval_backup_*.db
