@@ -14,6 +14,7 @@ The judge is the measuring instrument of this whole project: every model-perform
 | **gpt-4o** | openrouter | off (none) | Used only to *validate the missing-image flag* (it has no graded reasoning mode). |
 | **x-ai/grok-4.3** | openrouter | low | Bake-off candidate. Recent/strong general model but the **worst judge on disputes** — see below. |
 | **openai/gpt-5.4** | openrouter | medium | The strongest judge found. **Zero clear errors** on the disputed set. Recommended primary. |
+| **glm-4.5v** (z.ai) | zai | medium | The only vision-capable GLM on the z.ai Coding Plan — **GLM-5.2 is text-only** and can't judge images. Lenient (~+4.4 pt vs gpt-5.4) **and** carries grok's equivalent-method blind spot. Cross-check only (added 2026-06-21; see `experiments/20260621-glm-judge/`). |
 
 Convention: when the same judge_model grades the same answers twice, `run_number=1` is the **v1** prompt and `run_number=2` is the **v2** prompt (`--judge-count 2` without `--force` preserves run #1 and appends run #2). gemma's v2 pass is its own first run on a separate judge_model id.
 
@@ -54,6 +55,7 @@ The cleanest experiment we have: **one fixed set of answers** (gemma-4-31b-it, g
 | gemma (self) | 1 | Q21 |
 | flash | 3 | Q02, Q19, Q21 |
 | grok | 4 | Q02, Q21, Q24, Q25 |
+| glm-4.5v | 4 | Q02, Q21, Q24, Q25 (added 2026-06-21) |
 
 ### The headline insight: a correct *total* does not mean an accurate *judge*
 
@@ -65,6 +67,7 @@ The true score of run 33 is **≈69–70/76**. Note that flash (70) and grok (70
 - **flash** — **lenient at the top** (over-credits placeholder reasoning, awards full marks despite minor slips), yet **high-variance**: it can swing harsh on the wrong cue (Q21 → 0 *because the student described instead of drew*; Q19 → 1). Reliable for *ranking*, not for absolute level. Soft **ceiling**.
 - **gemma (self-judge)** — solid; only failure here was over-crediting its own Q21. Mildly lenient on figure-*description* answers (accepts prose where a drawing was asked).
 - **grok-4.3** — **avoid as a sole judge.** Despite being a strong general model it is the *least* accurate on disputes because it rigidly demands the CV's *exact* method and *exact* source and **penalises valid equivalent methods** — the precise thing rule 3.3 forbids. It zeroed a textbook-correct Beer–Lambert derivation (Q24) and a correct scale-uncertainty estimate (Q02). Its "harshness" is not rigour; it is a rule-3.3 blind spot.
+- **glm-4.5v (z.ai, medium)** — *added 2026-06-21.* Worst-of-both: a lenient soft *ceiling* (≈ +4.4 pt vs gpt-5.4 across 400 paired genai-gemma answers, higher in all 16 runs, 77% exact agreement) **and** grok's rule-3.3 blind spot. On Q24 it explicitly notes the method is "wiskundig equivalent" and docks the point anyway. Over-credits the lenient way on Q02/Q21/Q25. Same 4-error count as grok on the disputed set despite a deceptively high run-33 total (73/76) — a textbook compensating-errors case. Note the headline GLM (5.2) is **text-only** and can't judge this image exam at all. Full data: `experiments/20260621-glm-judge/`.
 
 ## Adjudication method (how ground truth was established)
 
