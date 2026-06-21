@@ -51,6 +51,11 @@ def get_api_key(base_url: str) -> str:
         if not key:
             raise ValueError("OPENROUTER_API_KEY not set in .env")
         return key
+    if "z.ai" in base_url:
+        key = os.getenv("ZAI_API_KEY")
+        if not key:
+            raise ValueError("ZAI_API_KEY not set in .env")
+        return key
     return "not-needed"
 
 

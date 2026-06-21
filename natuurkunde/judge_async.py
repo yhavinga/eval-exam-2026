@@ -64,6 +64,11 @@ def _build_extra_body(base_url: str, reasoning_effort: str,
     elif "8030" in base_url or "vllm" in base_url.lower():
         extra_body["chat_template_kwargs"] = {"enable_thinking": reasoning_effort != "off"}
         extra_body["skip_special_tokens"] = False
+    elif "z.ai" in base_url:
+        # z.ai (GLM) takes OpenAI-style reasoning_effort as a top-level field; the
+        # vision GLM (glm-4.5v) needs a reasoning control present or it returns an
+        # empty completion. Passed through verbatim so an unsupported value fails loud.
+        extra_body["reasoning_effort"] = reasoning_effort
     return extra_body
 
 
