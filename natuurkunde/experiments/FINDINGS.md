@@ -12,6 +12,7 @@ medium); all headline numbers below are on that scale.
 | [`20260617-gemma4-temp/`](20260617-gemma4-temp/) | gemma-4-31b temperature sweep 0.0–1.0 on genai (thinking on), 3×/cell | complete |
 | [`20260617-gold-rejudge/`](20260617-gold-rejudge/) | gpt-5.4 re-judge of all in-scope OpenRouter/qwen routes onto one scale | complete |
 | [`20260621-glm-judge/`](20260621-glm-judge/) | GLM (z.ai) as a judge vs gold gpt-5.4 — 400 paired genai-gemma answers | complete |
+| [`20260622-gemma-goldproxy/`](20260622-gemma-goldproxy/) | does gemma's gold-alignment survive without self-judging? (qwen + wandb) | complete |
 
 ## Headline findings
 
