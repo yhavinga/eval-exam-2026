@@ -13,6 +13,7 @@ medium); all headline numbers below are on that scale.
 | [`20260617-gold-rejudge/`](20260617-gold-rejudge/) | gpt-5.4 re-judge of all in-scope OpenRouter/qwen routes onto one scale | complete |
 | [`20260621-glm-judge/`](20260621-glm-judge/) | GLM (z.ai) as a judge vs gold gpt-5.4 — 400 paired genai-gemma answers | complete |
 | [`20260622-gemma-goldproxy/`](20260622-gemma-goldproxy/) | does gemma's gold-alignment survive without self-judging? (qwen + wandb) | complete |
+| [`20260623-glm46-judge/`](20260623-glm46-judge/) | glm-4.6v as a judge vs glm-4.5v and gold — same 400 paired genai-gemma answers | complete |
 
 ## Headline findings
 
@@ -48,10 +49,14 @@ medium); all headline numbers below are on that scale.
 - **Judge choice was the biggest confound.** Different judges grade differently
   (gemini-3.5-flash is lenient; gemma self-judge harsher), so any cross-route % must be
   on **one** judge. Fix: gold-re-judge existing answers — cheap, no new solves.
-- **GLM (z.ai) is not a gold judge** (`20260621-glm-judge/`). GLM-5.2 is text-only —
-  can't judge an image exam at all. The vision GLM, `glm-4.5v`, runs ~+4.4 pt lenient
-  vs gpt-5.4 (higher in all 16 runs) *and* shares grok's equivalent-method blind spot
-  (4 clear errors on the disputed set, tying grok). gpt-5.4 stays the gold judge.
+- **GLM (z.ai) is not a gold judge** (`20260621-glm-judge/`, `20260623-glm46-judge/`).
+  GLM-5.2 is text-only — can't judge an image exam at all. The vision GLM `glm-4.5v`
+  runs ~+4.4 pt lenient vs gpt-5.4 (higher in all 16 runs) *and* shares grok's
+  equivalent-method blind spot (4 clear errors on the disputed set, tying grok). The
+  newer `glm-4.6v` is a near-clone (+4.7 pt, 88% identical scores) that *fixes* the
+  blind spot but over-credits harder elsewhere — the better of the two GLMs, still not
+  gold-grade. z.ai's latest vision model, `glm-5v-turbo`, is plan-gated (pay-as-you-go
+  only) and untested. gpt-5.4 stays the gold judge.
 - **Judges are noisy too.** gemini-3.5-flash scored *identical* answers 97.4% vs 92.1%
   on a repeat pass (5.3 pt swing). Single-pass judging carries real variance; trust
   deltas, not third-decimal precision.

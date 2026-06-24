@@ -1,0 +1,17 @@
+$ python eval.py judge --judge-model glm-4.6v \
+    --judge-base-url https://api.z.ai/api/coding/paas/v4 --judge-stack zai \
+    --temperature 1.0 --reasoning-effort medium \
+    --answer-model gemma-4-31b-it --solve-runs 1,2,3 --solve-reasoning medium \
+    --judge-count 1 --concurrency 8
+
+[dry-run] would judge 400 answer×run pair(s) with glm-4.6v
+  (answer-model=gemma-4-31b-it, solve-runs=[1, 2, 3], reasoning=medium, judge-count=1)
+
+# First attempt at --concurrency 20 drew HTTP 429 code 1302 "Rate limit reached for
+# requests" on ~24% of calls. The z.ai/OpenAI path has no retry, so these were hard
+# errors. Re-run as a loop {delete null-score rows; judge at --concurrency 8} until clean.
+
+Judging 400 answer×run pairs with glm-4.6v (concurrency=8)...
+  400/400 scored (100%), 0 errors
+
+Final: 400 scored, 0 errors, 0 unparsed, 0 missing-image flags. judge_stack=zai.

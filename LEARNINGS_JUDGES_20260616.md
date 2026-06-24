@@ -14,7 +14,8 @@ The judge is the measuring instrument of this whole project: every model-perform
 | **gpt-4o** | openrouter | off (none) | Used only to *validate the missing-image flag* (it has no graded reasoning mode). |
 | **x-ai/grok-4.3** | openrouter | low | Bake-off candidate. Recent/strong general model but the **worst judge on disputes** — see below. |
 | **openai/gpt-5.4** | openrouter | medium | The strongest judge found. **Zero clear errors** on the disputed set. Recommended primary. |
-| **glm-4.5v** (z.ai) | zai | medium | The only vision-capable GLM on the z.ai Coding Plan — **GLM-5.2 is text-only** and can't judge images. Lenient (~+4.4 pt vs gpt-5.4) **and** carries grok's equivalent-method blind spot. Cross-check only (added 2026-06-21; see `experiments/20260621-glm-judge/`). |
+| **glm-4.5v** (z.ai) | zai | medium | Vision-capable GLM on the z.ai Coding Plan — **GLM-5.2 is text-only** and can't judge images. Lenient (~+4.4 pt vs gpt-5.4) **and** carries grok's equivalent-method blind spot. Cross-check only (added 2026-06-21; see `experiments/20260621-glm-judge/`). |
+| **glm-4.6v** (z.ai) | zai | medium | Newer vision GLM, also on the Coding Plan (4.5v was *not* the only one). Near-clone of 4.5v (~+4.7 pt, 88% identical scores) that **fixes** the equivalent-method blind spot but over-credits harder elsewhere — better of the two GLMs, still not gold-grade. Cross-check only (added 2026-06-23; see `experiments/20260623-glm46-judge/`). |
 
 Convention: when the same judge_model grades the same answers twice, `run_number=1` is the **v1** prompt and `run_number=2` is the **v2** prompt (`--judge-count 2` without `--force` preserves run #1 and appends run #2). gemma's v2 pass is its own first run on a separate judge_model id.
 
@@ -56,6 +57,7 @@ The cleanest experiment we have: **one fixed set of answers** (gemma-4-31b-it, g
 | flash | 3 | Q02, Q19, Q21 |
 | grok | 4 | Q02, Q21, Q24, Q25 |
 | glm-4.5v | 4 | Q02, Q21, Q24, Q25 (added 2026-06-21) |
+| glm-4.6v | 3 | Q02, Q18, Q21 — all over-credits; fixed grok's Q24/Q25 (added 2026-06-23) |
 
 ### The headline insight: a correct *total* does not mean an accurate *judge*
 
@@ -68,6 +70,7 @@ The true score of run 33 is **≈69–70/76**. Note that flash (70) and grok (70
 - **gemma (self-judge)** — solid; only failure here was over-crediting its own Q21. Mildly lenient on figure-*description* answers (accepts prose where a drawing was asked).
 - **grok-4.3** — **avoid as a sole judge.** Despite being a strong general model it is the *least* accurate on disputes because it rigidly demands the CV's *exact* method and *exact* source and **penalises valid equivalent methods** — the precise thing rule 3.3 forbids. It zeroed a textbook-correct Beer–Lambert derivation (Q24) and a correct scale-uncertainty estimate (Q02). Its "harshness" is not rigour; it is a rule-3.3 blind spot.
 - **glm-4.5v (z.ai, medium)** — *added 2026-06-21.* Worst-of-both: a lenient soft *ceiling* (≈ +4.4 pt vs gpt-5.4 across 400 paired genai-gemma answers, higher in all 16 runs, 77% exact agreement) **and** grok's rule-3.3 blind spot. On Q24 it explicitly notes the method is "wiskundig equivalent" and docks the point anyway. Over-credits the lenient way on Q02/Q21/Q25. Same 4-error count as grok on the disputed set despite a deceptively high run-33 total (73/76) — a textbook compensating-errors case. Note the headline GLM (5.2) is **text-only** and can't judge this image exam at all. Full data: `experiments/20260621-glm-judge/`.
+- **glm-4.6v (z.ai, medium)** — *added 2026-06-23.* The newer vision GLM, and for scoring purposes the **same instrument** as 4.5v: 88% identical scores, +0.01 pt/q between them, the same ~+4.5 pt lenient ceiling vs gpt-5.4 (94.7% vs 90.0%; higher in all three answer-runs). One real improvement — it **drops the rule-3.3 blind spot**, correctly crediting the Beer–Lambert equivalent method on Q24 (and fixing Q25) that 4.5v and grok both docked. But it trades that for a *new* over-credit on Q18 (awards the full 3 where ≤2 is defensible), so net leniency is unchanged: 3 clear errors, **all over-credits**, and the **most lenient run-33 total of any judge** (75/76 = 98.7%). Better than 4.5v (newer, free, lower MAE, no blind spot) but still ranking-only, never absolute. z.ai's latest vision model, `glm-5v-turbo`, is plan-gated and untested. Full data: `experiments/20260623-glm46-judge/`.
 
 ## Adjudication method (how ground truth was established)
 
